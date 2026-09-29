@@ -1,0 +1,28 @@
+name: Monitor de precios
+on:
+  schedule:
+    - cron: '0 12 * * *'
+  workflow_dispatch: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python check_prices.py
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      - name: Commit reporte
+        run: |
+          git config user.name "Monitor Precios Bot"
+          git config user.email "bot@liontechve.com"
+          git add index.html
+          if git diff --cached --quiet; then
+            echo "Sin cambios"
+          else
+            git commit -m "Reporte $(date -u +%Y-%m-%d)"
+            git push
+          fi
