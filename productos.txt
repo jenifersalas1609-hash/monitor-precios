@@ -1,0 +1,5 @@
+# Un producto por linea. Las lineas que empiezan con # se ignoran.
+# Edita este archivo cuando quieras y el reporte del dia siguiente ya lo reflejara.
+# Ejemplos (borra estos y pon los tuyos):
+iPhone 13 128GB Venezuela
+Xiaomi Redmi Note 13 Venezuela
