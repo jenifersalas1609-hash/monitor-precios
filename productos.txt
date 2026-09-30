@@ -1,5 +1,63 @@
-# Un producto por linea. Las lineas que empiezan con # se ignoran.
-# Edita este archivo cuando quieras y el reporte del dia siguiente ya lo reflejara.
-# Ejemplos (borra estos y pon los tuyos):
-iPhone 13 128GB Venezuela
-Xiaomi Redmi Note 13 Venezuela
+import os
+import csv
+import requests
+from io import StringIO
+
+def obtener_productos():
+    # Intenta obtener la URL del CSV desde las variables de entorno de GitHub Actions
+    csv_url = os.environ.get('SHEET_CSV_URL')
+    
+    # Nombre de la columna en tu Google Sheet que contiene los productos.
+    # Puedes cambiar "Producto" por el título real que le hayas puesto a la columna.
+    nombre_columna = os.environ.get('SHEET_COLUMN_NAME', 'Producto')
+
+    productos = []
+
+    # Si la URL existe, intentamos descargar el CSV
+    if csv_url:
+        print(f"Detectada SHEET_CSV_URL. Descargando productos desde Google Sheets...")
+        try:
+            response = requests.get(csv_url)
+            response.raise_for_status() # Lanza un error si la descarga falla (ej. error 404)
+            
+            # Leemos el texto descargado como un archivo CSV
+            csv_data = StringIO(response.text)
+            reader = csv.DictReader(csv_data)
+            
+            for fila in reader:
+                # Verificamos que la columna exista y que la celda no esté vacía
+                if nombre_columna in fila and fila[nombre_columna].strip():
+                    producto = fila[nombre_columna].strip()
+                    # Ignorar filas que empiecen con '#' por si acaso
+                    if not producto.startswith('#'):
+                        productos.append(producto)
+            
+            if productos:
+                print(f"Éxito: Se cargaron {len(productos)} productos desde el CSV.")
+                return productos
+            else:
+                print(f"Advertencia: No se encontraron productos en la columna '{nombre_columna}'.")
+                
+        except Exception as e:
+            print(f"Error al procesar el CSV: {e}")
+            print("Cayendo de vuelta al archivo local...")
+
+    # Plan de respaldo: Leer desde productos.txt si no hay URL o si hubo un error
+    print("Leyendo productos desde productos.txt...")
+    try:
+        with open('productos.txt', 'r', encoding='utf-8') as f:
+            for linea in f:
+                linea = linea.strip()
+                if linea and not linea.startswith('#'):
+                    productos.append(linea)
+        print(f"Éxito: Se cargaron {len(productos)} productos desde productos.txt.")
+    except FileNotFoundError:
+        print("Error crítico: No se encontró el archivo productos.txt")
+        
+    return productos
+
+# --- Resto de tu script check_prices.py ---
+# Ejemplo de uso:
+# lista_de_productos = obtener_productos()
+# para cada producto en lista_de_productos:
+#     preguntar_a_gemini(producto)
