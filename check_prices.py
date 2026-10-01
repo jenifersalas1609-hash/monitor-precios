@@ -61,7 +61,7 @@ def check_product(producto):
     )
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.8-flash",
             contents=prompt,
         )
         texto = response.text or "(sin respuesta de Gemini)"
