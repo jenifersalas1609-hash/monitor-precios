@@ -1,15 +1,42 @@
 import os
 import sys
 import html
+import time
+import urllib.request
+import csv
+import io
 from datetime import datetime, timezone, timedelta
 from google import genai
 from google.genai import types
+
 API_KEY = os.environ.get("GEMINI_API_KEY")
 if not API_KEY:
     print("ERROR: falta la variable de entorno GEMINI_API_KEY", file=sys.stderr)
     sys.exit(1)
+
 client = genai.Client(api_key=API_KEY)
+
 def load_products(path="productos.txt"):
+    # 1. Intentar cargar desde Google Sheets si existe la variable
+    sheet_url = os.environ.get("SHEET_CSV_URL")
+    if sheet_url:
+        try:
+            print("Detectada SHEET_CSV_URL. Descargando productos desde Google Sheets...")
+            req = urllib.request.Request(sheet_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                content = resp.read().decode("utf-8")
+            reader = csv.reader(io.StringIO(content))
+            productos = []
+            for row in reader:
+                if row and row[0].strip() and not row[0].strip().startswith("#"):
+                    productos.append(row[0].strip())
+            if productos:
+                print(f"Se cargaron {len(productos)} productos desde Google Sheets.")
+                return productos
+        except Exception as e:
+            print(f"Aviso: No se pudo leer Google Sheets ({e}). Buscando en archivo local...", file=sys.stderr)
+
+    # 2. Si no hay Google Sheets o falló, usar productos.txt
     if not os.path.exists(path):
         return []
     productos = []
@@ -20,6 +47,7 @@ def load_products(path="productos.txt"):
                 continue
             productos.append(line)
     return productos
+
 def check_product(producto):
     prompt = (
         f'Investiga el precio actual de "{producto}". '
@@ -32,27 +60,17 @@ def check_product(producto):
         "Responde en español, de forma breve y clara, usando una lista corta."
     )
     try:
-        grounding_tool = types.Tool(google_search=types.GoogleSearch())
-        config = types.GenerateContentConfig(tools=[grounding_tool])
         response = client.models.generate_content(
-            model="gemini-3.8-flash",
+            model="gemini-2.5-flash",
             contents=prompt,
-            config=config,
         )
         texto = response.text or "(sin respuesta de Gemini)"
         fuentes = []
-        try:
-            chunks = response.candidates[0].grounding_metadata.grounding_chunks or []
-            for c in chunks:
-                if getattr(c, "web", None):
-                    fuentes.append({"title": c.web.title, "uri": c.web.uri})
-        except Exception:
-            pass
         return {"producto": producto, "texto": texto, "fuentes": fuentes, "error": None}
     except Exception as e:
         return {"producto": producto, "texto": "", "fuentes": [], "error": str(e)}
+
 def format_texto(texto):
-    # Convierte saltos de linea y guiones de lista en HTML simple
     texto = html.escape(texto)
     lineas = texto.split("\n")
     html_out = []
@@ -73,6 +91,7 @@ def format_texto(texto):
     if en_lista:
         html_out.append("</ul>")
     return "\n".join(html_out)
+
 def build_html(resultados, fecha_str):
     tarjetas = []
     for r in resultados:
@@ -138,21 +157,28 @@ def build_html(resultados, fecha_str):
     <h1>Monitor de Precios</h1>
     <div class="fecha">Actualizado: {fecha_str}</div>
     {"".join(tarjetas)}
-    <footer>Generado automaticamente con Gemini. Edita productos.txt en el repositorio para cambiar la lista.</footer>
+    <footer>Generado automaticamente con Gemini. Actualiza tu Google Sheet o productos.txt para cambiar la lista.</footer>
   </div>
 </body>
 </html>
 """
+
 def main():
     productos = load_products()
     if not productos:
         productos = ["Ejemplo: iPhone 13 128GB"]
-    resultados = [check_product(p) for p in productos]
+    
+    resultados = []
+    for p in productos:
+        resultados.append(check_product(p))
+        time.sleep(2)  # Pausa preventiva para no saturar la cuota gratuita
+        
     tz = timezone(timedelta(hours=-4))
     fecha_str = datetime.now(tz).strftime("%d/%m/%Y %H:%M") + " (Venezuela)"
     out = build_html(resultados, fecha_str)
     with open("index.html", "w", encoding="utf-8") as f:
         f.write(out)
     print(f"Reporte generado con {len(resultados)} producto(s).")
+
 if __name__ == "__main__":
     main()
