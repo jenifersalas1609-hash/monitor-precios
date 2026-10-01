@@ -48,7 +48,7 @@ def load_products(path="productos.txt"):
             productos.append(line)
     return productos
 
-def check_product(producto):
+def check_product(producto, reintentos=3):
     prompt = (
         f'Investiga el precio actual de "{producto}". '
         "Busca en al menos 2 o 3 tiendas/sitios distintos (por ejemplo Mercado Libre, "
@@ -59,16 +59,24 @@ def check_product(producto):
         "mejor disponibilidad, mas confiable, etc). "
         "Responde en español, de forma breve y clara, usando una lista corta."
     )
-    try:
-        response = client.models.generate_content(
-            model="gemini-3.8-flash",
-            contents=prompt,
-        )
-        texto = response.text or "(sin respuesta de Gemini)"
-        fuentes = []
-        return {"producto": producto, "texto": texto, "fuentes": fuentes, "error": None}
-    except Exception as e:
-        return {"producto": producto, "texto": "", "fuentes": [], "error": str(e)}
+    
+    # Intenta consultar a Gemini; si el servidor está saturado (503), espera y reintenta
+    for intento in range(reintentos):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.8-flash",
+                contents=prompt,
+            )
+            texto = response.text or "(sin respuesta de Gemini)"
+            fuentes = []
+            return {"producto": producto, "texto": texto, "fuentes": fuentes, "error": None}
+        except Exception as e:
+            error_msg = str(e)
+            if ("503" in error_msg or "UNAVAILABLE" in error_msg) and intento < reintentos - 1:
+                print(f"Servidor ocupado para {producto}. Reintentando en 5 segundos... (intento {intento + 1}/{reintentos})")
+                time.sleep(5)
+                continue
+            return {"producto": producto, "texto": "", "fuentes": [], "error": error_msg}
 
 def format_texto(texto):
     texto = html.escape(texto)
@@ -171,7 +179,7 @@ def main():
     resultados = []
     for p in productos:
         resultados.append(check_product(p))
-        time.sleep(2)  # Pausa preventiva para no saturar la cuota gratuita
+        time.sleep(3)  # Pausa de 3 segundos entre productos
         
     tz = timezone(timedelta(hours=-4))
     fecha_str = datetime.now(tz).strftime("%d/%m/%Y %H:%M") + " (Venezuela)"
