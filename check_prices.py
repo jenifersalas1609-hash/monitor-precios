@@ -5,6 +5,7 @@ import time
 import urllib.request
 import csv
 import io
+import re
 from datetime import datetime, timezone, timedelta
 from google import genai
 from google.genai import types
@@ -60,7 +61,6 @@ def check_product(producto, reintentos=3):
         "Responde en español, de forma breve y clara, usando una lista corta."
     )
     
-    # Intenta consultar a Gemini; si el servidor está saturado (503), espera y reintenta
     for intento in range(reintentos):
         try:
             response = client.models.generate_content(
@@ -72,20 +72,29 @@ def check_product(producto, reintentos=3):
             return {"producto": producto, "texto": texto, "fuentes": fuentes, "error": None}
         except Exception as e:
             error_msg = str(e)
-            if ("503" in error_msg or "UNAVAILABLE" in error_msg) and intento < reintentos - 1:
-                print(f"Servidor ocupado para {producto}. Reintentando en 5 segundos... (intento {intento + 1}/{reintentos})")
-                time.sleep(5)
+            if ("503" in error_msg or "UNAVAILABLE" in error_msg or "429" in error_msg) and intento < reintentos - 1:
+                espera = (intento + 1) * 6
+                print(f"Servidor ocupado para '{producto}'. Esperando {espera}s para reintentar ({intento + 1}/{reintentos})...")
+                time.sleep(espera)
                 continue
             return {"producto": producto, "texto": "", "fuentes": [], "error": error_msg}
 
 def format_texto(texto):
     texto = html.escape(texto)
+    # Convierte **texto** a negritas HTML limpias
+    texto = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', texto)
+    
     lineas = texto.split("\n")
     html_out = []
     en_lista = False
     for linea in lineas:
         l = linea.strip()
-        if l.startswith("- ") or l.startswith("* "):
+        if l.startswith("### "):
+            if en_lista:
+                html_out.append("</ul>")
+                en_lista = False
+            html_out.append(f"<h3 style='margin-top: 14px; margin-bottom: 6px; color: #58a6ff; font-size: 1.05em;'>{l[4:]}</h3>")
+        elif l.startswith("- ") or l.startswith("* "):
             if not en_lista:
                 html_out.append("<ul>")
                 en_lista = True
@@ -154,6 +163,7 @@ def build_html(resultados, fecha_str):
   .card p {{ margin: 6px 0; line-height: 1.5; }}
   .card ul {{ margin: 6px 0; padding-left: 20px; }}
   .card li {{ margin: 4px 0; line-height: 1.4; }}
+  strong {{ color: #ffffff; }}
   .error {{ color: #f85149; }}
   details {{ margin-top: 10px; font-size: 0.85em; color: #8b949e; }}
   details a {{ color: #8b949e; }}
@@ -179,7 +189,7 @@ def main():
     resultados = []
     for p in productos:
         resultados.append(check_product(p))
-        time.sleep(3)  # Pausa de 3 segundos entre productos
+        time.sleep(6)  # Pausa segura de 6 segundos entre productos
         
     tz = timezone(timedelta(hours=-4))
     fecha_str = datetime.now(tz).strftime("%d/%m/%Y %H:%M") + " (Venezuela)"
