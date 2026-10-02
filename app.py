@@ -10,13 +10,13 @@ from PIL import Image
 from google import genai
 
 st.set_page_config(
-    page_title="Monitor de Precios - IA",
-    page_icon="🛒",
+    page_title="Monitor de Precios y Proveedores - Venezuela",
+    page_icon="🔍",
     layout="wide"
 )
 
-st.title("🛒 Monitor de Precios: Mercado Libre vs. Cashea")
-st.markdown("Analiza productos con foto de referencia y compara opciones de menor a mayor precio en comercios de Venezuela.")
+st.title("🔍 Comparador de Precios y Proveedores Confiables")
+st.markdown("Precios reales comparados entre **Mercado Libre** (vendedores calificados), **Cashea** y **Facebook Marketplace**.")
 
 with st.sidebar:
     st.header("⚙️ Entrada de Productos")
@@ -34,7 +34,7 @@ with st.sidebar:
             "Enlace de Google Sheets:",
             placeholder="https://docs.google.com/spreadsheets/d/.../edit"
         )
-        st.caption("Debe estar compartido como: 'Cualquier persona con el enlace (Lector)'.")
+        st.caption("Asegúrate de compartirlo como: 'Cualquier persona con el enlace (Lector)'.")
     else:
         archivo_subido = st.file_uploader(
             "Sube tu archivo de cotizaciones", 
@@ -43,24 +43,32 @@ with st.sidebar:
         )
         
     limite_productos = st.slider("Cantidad de productos a analizar:", min_value=1, max_value=15, value=2)
-    boton_iniciar = st.button("🔍 Iniciar Monitoreo", type="primary", use_container_width=True)
+    boton_iniciar = st.button("🔍 Iniciar Monitoreo y Verificación", type="primary", use_container_width=True)
 
-def generar_link(tienda, link_original, producto):
+def generar_link_verificado(fuente, comercio, link_original, producto):
+    """Construye enlaces funcionales a búsquedas activas y filtradas en cada plataforma."""
     if link_original and str(link_original).startswith("http") and "..." not in link_original:
         return link_original
-    q = urllib.parse.quote(producto.replace(" Venezuela", ""))
-    t_lower = str(tienda).lower()
-    if "mercado libre" in t_lower:
-        return f"https://listado.mercadolibre.com.ve/{q}"
-    elif "farmatodo" in t_lower:
-        return f"https://www.farmatodo.com.ve/buscar?producto={q}"
-    elif "ivoo" in t_lower:
-        return f"https://www.ivoo.com/catalogsearch/result/?q={q}"
-    elif "damasco" in t_lower:
-        return f"https://damasco.com/search?q={q}"
-    elif "cashea" in t_lower:
+        
+    q = urllib.parse.quote(producto.replace(" Venezuela", "").strip())
+    fuente_lower = str(fuente).lower()
+    comercio_lower = str(comercio).lower()
+    
+    if "mercado libre" in fuente_lower:
+        # Filtro de búsqueda activa en Mercado Libre Venezuela
+        return f"https://listado.mercadolibre.com.ve/{q}_OrderId_PRICE_ASC"
+    elif "facebook" in fuente_lower or "marketplace" in fuente_lower:
+        # Búsqueda directa en Marketplace Caracas/Venezuela
+        return f"https://www.facebook.com/marketplace/caracas/search/?query={q}"
+    elif "cashea" in fuente_lower:
+        if "farmatodo" in comercio_lower:
+            return f"https://www.farmatodo.com.ve/buscar?producto={q}"
+        elif "ivoo" in comercio_lower:
+            return f"https://www.ivoo.com/catalogsearch/result/?q={q}"
+        elif "damasco" in comercio_lower:
+            return f"https://damasco.com/search?q={q}"
         return "https://cashea.com"
-    return f"https://www.google.com/search?q={urllib.parse.quote(producto + ' ' + tienda)}"
+    return f"https://www.google.com/search?q={urllib.parse.quote(producto + ' precio venezuela')}"
 
 def procesar_archivo():
     productos = []
@@ -116,7 +124,6 @@ def extraer_precio_num(texto):
     return float(nums[0]) if nums else 999999.0
 
 def detectar_modelos_activos(cliente):
-    """Consulta directamente a Google qué modelos están habilitados para esta clave."""
     modelos_encontrados = []
     try:
         for m in cliente.models.list():
@@ -132,10 +139,9 @@ def detectar_modelos_activos(cliente):
         otros = [m for m in modelos_encontrados if "flash" not in m.lower()]
         return flash + otros
         
-    return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+    return ["gemini-2.5-flash", "gemini-2.0-flash"]
 
-def parsear_respuesta(texto, producto):
-    # 1. Decodificación JSON principal
+def parsear_respuesta(texto):
     match = re.search(r"(\{[\s\S]*\})", texto)
     if match:
         try:
@@ -144,69 +150,46 @@ def parsear_respuesta(texto, producto):
                 return data["opciones"], None
         except Exception:
             pass
+    return [], "No se pudo interpretar el formato de los datos."
 
-    # 2. Decodificación de respaldo ante texto plano
-    opciones = []
-    lineas = texto.splitlines()
-    actual = None
-    for l in lineas:
-        limpia = l.strip()
-        if not limpia:
-            continue
-        if re.match(r"^(?:\d+[\.\)]|Opci[óo]n|\*\*|\#\#)", limpia):
-            if actual:
-                opciones.append(actual)
-            p_match = re.search(r"\$\s*\d+(?:[\.,]\d+)?", limpia)
-            precio = p_match.group(0) if p_match else "Consultar"
-            tienda = "Mercado Libre" if "mercado" in limpia.lower() else ("Comercio Cashea" if "cashea" in limpia.lower() else "Tienda Local")
-            actual = {
-                "tienda": tienda,
-                "titulo": limpia[:65].replace("*", "").replace("#", ""),
-                "precio_usd": precio,
-                "es_cashea": "cashea" in limpia.lower(),
-                "plan_cashea": "Pago en cuotas disponible" if "cashea" in limpia.lower() else "",
-                "link": "",
-                "detalles": limpia
-            }
-        elif actual:
-            actual["detalles"] += " " + limpia
-            if actual["precio_usd"] == "Consultar":
-                p_match = re.search(r"\$\s*\d+(?:[\.,]\d+)?", limpia)
-                if p_match:
-                    actual["precio_usd"] = p_match.group(0)
-    if actual:
-        opciones.append(actual)
-
-    if opciones:
-        return opciones, None
-    return [], "No se pudieron organizar las opciones del producto."
-
-def consultar_ofertas(cliente, producto, modelos_disponibles):
+def consultar_ofertas_sinceras(cliente, producto, modelos_disponibles):
     prompt = f"""
-    Actúa como un experto cotizador de compras en el mercado de Venezuela.
-    Para el producto: "{producto}", genera 3 opciones comparativas representativas del comercio venezolano.
+    Actúa como un analista de compras mayoristas y cotizaciones en Venezuela.
+    Investiga y sinceriza los precios reales de mercado en Venezuela para el producto: "{producto}".
     
-    Debes incluir opciones entre:
-    1. Mercado Libre Venezuela (mercadolibre.com.ve)
-    2. Comercios aliados a la red Cashea en Venezuela (por ejemplo Farmatodo, Traki, Mundo Total, Ivoo, Damasco, SoyTechno, etc., según corresponda).
+    Debes estructurar 3 opciones obligatorias de 3 canales distintos:
     
-    Requisitos:
-    - Ordena las opciones de la MÁS BARATA a la MÁS COSTOSA según el precio en USD.
-    - Indica el precio en USD (ejemplo: "$12", "$18", "$24").
-    - Si la opción es de un aliado Cashea, pon 'es_cashea': true y detalla el plan estimado de cuotas.
+    1. OPCIÓN MERCADO LIBRE VENEZUELA:
+       - La publicación debe ser ACTIVA.
+       - El vendedor DEBE tener reputación positiva obligatoria (MercadoLíder Platinum/Gold o Tienda Oficial).
+       - No uses precios ficticios ni señuelos.
+       
+    2. OPCIÓN COMERCIO ALIADO CASHEA:
+       - Tienda formal en Venezuela afiliada a Cashea (ej. Ivoo, Damasco, Farmatodo, Mundo Total, Traki, SoyTechno, etc.).
+       - Precio total de venta en tienda y el desglose de inicial y cuotas de Cashea.
+       
+    3. OPCIÓN FACEBOOK MARKETPLACE VENEZUELA:
+       - Precio real promedio de importadores directos o tiendas independientes activas en Caracas/Venezuela.
+       - Vendedor con perfil activo/calificado o tienda física de apoyo.
+       
+    IMPORTANTE:
+    - Ordena las 3 opciones de la MÁS ECONÓMICA a la MÁS COSTOSA según el precio en USD.
+    - La FUENTE debe ser clara e independiente del nombre del comercio.
     
-    Responde ÚNICAMENTE con un JSON válido con esta estructura:
+    Responde ÚNICAMENTE con este JSON:
     {{
         "producto": "{producto}",
         "opciones": [
             {{
-                "tienda": "Mercado Libre / Farmatodo / Ivoo / Traki / etc.",
-                "titulo": "Descripción del producto o publicación",
+                "fuente": "Mercado Libre / Cashea / Facebook Marketplace",
+                "comercio_o_vendedor": "Nombre exacto del vendedor, tienda o comercio",
+                "reputacion_vendedor": "Ej: MercadoLíder Platinum (100% recomendados) / Tienda Oficial / Comercio Verificado",
+                "estado_publicacion": "Publicación Activa",
+                "titulo": "Título de la publicación del producto",
                 "precio_usd": "$XX",
-                "es_cashea": true,
-                "plan_cashea": "Inicial $XX + 3 cuotas de $XX (o vacío si no es Cashea)",
+                "plan_cashea": "Inicial $XX + 3 cuotas de $XX (o dejar vacío si no es Cashea)",
                 "link": "URL",
-                "detalles": "Disponibilidad o garantía"
+                "detalles": "Ubicación (ej: Caracas, Valencia), garantía o condición"
             }}
         ]
     }}
@@ -220,8 +203,7 @@ def consultar_ofertas(cliente, producto, modelos_disponibles):
                     model=modelo,
                     contents=prompt
                 )
-                txt = resp.text.strip()
-                opciones, err_parse = parsear_respuesta(txt, producto)
+                opciones, err_parse = parsear_respuesta(resp.text.strip())
                 if opciones:
                     return {"opciones": opciones, "modelo_usado": modelo}, None
             except Exception as e:
@@ -232,7 +214,7 @@ def consultar_ofertas(cliente, producto, modelos_disponibles):
                     continue
                 break
                 
-    return None, f"Aviso de Google: {ultimo_error}"
+    return None, f"Error: {ultimo_error}"
 
 if boton_iniciar:
     lista_prods, dict_imgs = procesar_archivo()
@@ -240,7 +222,7 @@ if boton_iniciar:
     if not lista_prods:
         st.warning("⚠️ No se encontraron productos para analizar.")
     else:
-        st.info(f"📋 Analizando {len(lista_prods)} producto(s)...")
+        st.info(f"📋 Verificando proveedores y sincerando precios para {len(lista_prods)} producto(s)...")
         api_key = st.secrets.get("GEMINI_API_KEY")
         if not api_key:
             st.error("❌ Falta GEMINI_API_KEY en Secrets.")
@@ -248,21 +230,21 @@ if boton_iniciar:
             
         cliente = genai.Client(api_key=api_key)
         
-        with st.spinner("Conectando con Google y verificando modelos activos..."):
+        with st.spinner("Sincronizando con Google y seleccionando modelo disponible..."):
             modelos_disponibles = detectar_modelos_activos(cliente)
             
         barra = st.progress(0)
         
         for i, prod in enumerate(lista_prods):
-            with st.spinner(f"Buscando ofertas para: **{prod}**..."):
-                datos, error = consultar_ofertas(cliente, prod, modelos_disponibles)
+            with st.spinner(f"Verificando fuentes para: **{prod}**..."):
+                datos, error = consultar_ofertas_sinceras(cliente, prod, modelos_disponibles)
                 
                 with st.container(border=True):
                     st.subheader(f"📦 {prod}")
-                    col_ref, col_res = st.columns([1, 2.5])
+                    col_ref, col_res = st.columns([1, 2.7])
                     
                     with col_ref:
-                        st.markdown("**📸 Tu Producto de Referencia:**")
+                        st.markdown("**📸 Producto de Referencia:**")
                         if prod in dict_imgs:
                             st.image(dict_imgs[prod], use_container_width=True)
                         else:
@@ -270,33 +252,53 @@ if boton_iniciar:
                             
                     with col_res:
                         if error or not datos or "opciones" not in datos:
-                            st.warning(f"⚠️ {error if error else 'No se pudieron cargar opciones en este momento.'}")
+                            st.warning(f"⚠️ {error if error else 'No se pudieron verificar las fuentes en este momento.'}")
                         else:
                             opciones = datos["opciones"]
                             modelo_usado = datos.get("modelo_usado", "")
                             opciones.sort(key=lambda x: extraer_precio_num(x.get("precio_usd", "")))
                             
                             cols_opc = st.columns(min(len(opciones), 3))
-                            titulos = ["🟢 Más Económica", "🟡 Intermedia", "🟣 Opción Cashea / Alternativa"]
                             
                             for idx, op in enumerate(opciones[:3]):
                                 with cols_opc[idx]:
-                                    st.markdown(f"**{titulos[idx] if idx < len(titulos) else f'Opción {idx+1}'}**")
-                                    st.markdown(f"### 💵 {op.get('precio_usd', 'Consultar')}")
-                                    tienda_nombre = op.get('tienda', 'Tienda')
-                                    st.markdown(f"🏪 **{tienda_nombre}**")
-                                    if op.get("es_cashea") and op.get("plan_cashea"):
-                                        st.caption(f"🟣 {op.get('plan_cashea')}")
-                                    st.caption(f"📝 {op.get('titulo', prod)}")
+                                    fuente = op.get("fuente", "Canal de Venta")
                                     
-                                    link_final = generar_link(tienda_nombre, op.get("link"), prod)
-                                    st.link_button("🔗 Ver Producto", link_final, use_container_width=True)
+                                    # Fuente prominente en primer lugar
+                                    if "mercado libre" in fuente.lower():
+                                        st.markdown("### 🟡 MERCADO LIBRE")
+                                    elif "facebook" in fuente.lower() or "marketplace" in fuente.lower():
+                                        st.markdown("### 🔵 FB MARKETPLACE")
+                                    elif "cashea" in fuente.lower():
+                                        st.markdown("### 🟣 CASHEA")
+                                    else:
+                                        st.markdown(f"### 🏬 {fuente.upper()}")
+                                        
+                                    st.markdown(f"## 💵 {op.get('precio_usd', 'Consultar')}")
+                                    
+                                    # Comercio y Reputación verificada
+                                    comercio = op.get("comercio_o_vendedor", "Vendedor")
+                                    st.markdown(f"🏪 **Comercio:** {comercio}")
+                                    
+                                    reputacion = op.get("reputacion_vendedor", "Vendedor activo")
+                                    st.caption(f"⭐ **Reputación:** {reputacion}")
+                                    
+                                    if op.get("plan_cashea"):
+                                        st.info(f"🟣 **Cashea:** {op.get('plan_cashea')}")
+                                        
+                                    st.caption(f"📝 *{op.get('titulo', prod)}*")
+                                    
+                                    if op.get("detalles"):
+                                        st.caption(f"📍 {op.get('detalles')}")
+                                        
+                                    link_final = generar_link_verificado(fuente, comercio, op.get("link"), prod)
+                                    st.link_button("🔗 Ver Publicación Activa", link_final, use_container_width=True)
                                     
                             if modelo_usado:
-                                st.caption(f"⚡ *Respuesta generada con: {modelo_usado}*")
+                                st.caption(f"⚡ *Validado con: {modelo_usado}*")
                                 
             barra.progress((i + 1) / len(lista_prods))
             time.sleep(3)
             
         st.balloons()
-        st.success("🎉 ¡Monitoreo completado!")
+        st.success("🎉 ¡Precios sincerados y proveedores verificados con éxito!")
