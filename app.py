@@ -16,10 +16,10 @@ st.set_page_config(
 )
 
 st.title("🛒 Monitor de Precios: Mercado Libre vs. Cashea")
-st.markdown("Compara productos con foto de referencia y analiza opciones de menor a mayor precio en Venezuela.")
+st.markdown("Analiza productos con foto de referencia y compara opciones de menor a mayor precio en comercios de Venezuela.")
 
 with st.sidebar:
-    st.header("⚙ Entrada de Productos")
+    st.header("⚙️ Entrada de Productos")
     
     opcion_origen = st.radio(
         "Selecciona el origen:",
@@ -115,21 +115,87 @@ def extraer_precio_num(texto):
     nums = re.findall(r"\d+(?:\.\d+)?", str(texto).replace(",", "."))
     return float(nums[0]) if nums else 999999.0
 
-def consultar_ofertas(cliente, producto):
+def detectar_modelos_activos(cliente):
+    """Consulta directamente a Google qué modelos están habilitados para esta clave."""
+    modelos_encontrados = []
+    try:
+        for m in cliente.models.list():
+            nombre = getattr(m, "name", "") or str(m)
+            limpio = nombre.replace("models/", "").strip()
+            if "gemini" in limpio.lower() and "embed" not in limpio.lower():
+                modelos_encontrados.append(limpio)
+    except Exception:
+        pass
+        
+    if modelos_encontrados:
+        flash = [m for m in modelos_encontrados if "flash" in m.lower()]
+        otros = [m for m in modelos_encontrados if "flash" not in m.lower()]
+        return flash + otros
+        
+    return ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"]
+
+def parsear_respuesta(texto, producto):
+    # 1. Decodificación JSON principal
+    match = re.search(r"(\{[\s\S]*\})", texto)
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            if "opciones" in data and isinstance(data["opciones"], list) and len(data["opciones"]) > 0:
+                return data["opciones"], None
+        except Exception:
+            pass
+
+    # 2. Decodificación de respaldo ante texto plano
+    opciones = []
+    lineas = texto.splitlines()
+    actual = None
+    for l in lineas:
+        limpia = l.strip()
+        if not limpia:
+            continue
+        if re.match(r"^(?:\d+[\.\)]|Opci[óo]n|\*\*|\#\#)", limpia):
+            if actual:
+                opciones.append(actual)
+            p_match = re.search(r"\$\s*\d+(?:[\.,]\d+)?", limpia)
+            precio = p_match.group(0) if p_match else "Consultar"
+            tienda = "Mercado Libre" if "mercado" in limpia.lower() else ("Comercio Cashea" if "cashea" in limpia.lower() else "Tienda Local")
+            actual = {
+                "tienda": tienda,
+                "titulo": limpia[:65].replace("*", "").replace("#", ""),
+                "precio_usd": precio,
+                "es_cashea": "cashea" in limpia.lower(),
+                "plan_cashea": "Pago en cuotas disponible" if "cashea" in limpia.lower() else "",
+                "link": "",
+                "detalles": limpia
+            }
+        elif actual:
+            actual["detalles"] += " " + limpia
+            if actual["precio_usd"] == "Consultar":
+                p_match = re.search(r"\$\s*\d+(?:[\.,]\d+)?", limpia)
+                if p_match:
+                    actual["precio_usd"] = p_match.group(0)
+    if actual:
+        opciones.append(actual)
+
+    if opciones:
+        return opciones, None
+    return [], "No se pudieron organizar las opciones del producto."
+
+def consultar_ofertas(cliente, producto, modelos_disponibles):
     prompt = f"""
-    Actúa como un experto investigador de compras en el mercado venezolano.
-    Para el producto: "{producto}", genera 3 opciones comparativas reales disponibles en Venezuela.
+    Actúa como un experto cotizador de compras en el mercado de Venezuela.
+    Para el producto: "{producto}", genera 3 opciones comparativas representativas del comercio venezolano.
     
-    Opciones a considerar:
+    Debes incluir opciones entre:
     1. Mercado Libre Venezuela (mercadolibre.com.ve)
-    2. Red de comercios aliados a Cashea en Venezuela (por ejemplo: Farmatodo, Traki, Mundo Total, Ivoo, Damasco, SoyTechno, Multimax, etc., según corresponda).
+    2. Comercios aliados a la red Cashea en Venezuela (por ejemplo Farmatodo, Traki, Mundo Total, Ivoo, Damasco, SoyTechno, etc., según corresponda).
     
     Requisitos:
     - Ordena las opciones de la MÁS BARATA a la MÁS COSTOSA según el precio en USD.
     - Indica el precio en USD (ejemplo: "$12", "$18", "$24").
-    - Si la opción es de un aliado de Cashea, pon 'es_cashea': true y detalla el plan estimado de cuotas e inicial.
+    - Si la opción es de un aliado Cashea, pon 'es_cashea': true y detalla el plan estimado de cuotas.
     
-    Responde ÚNICAMENTE con un JSON válido sin texto adicional antes ni después:
+    Responde ÚNICAMENTE con un JSON válido con esta estructura:
     {{
         "producto": "{producto}",
         "opciones": [
@@ -146,16 +212,8 @@ def consultar_ofertas(cliente, producto):
     }}
     """
     
-    # Lista de modelos con prioridad a los más rápidos y disponibles
-    modelos = [
-        "gemini-2.0-flash-lite",
-        "gemini-1.5-flash-8b",
-        "gemini-2.0-flash",
-        "gemini-1.5-flash"
-    ]
-    
     ultimo_error = ""
-    for modelo in modelos:
+    for modelo in modelos_disponibles:
         for intento in range(2):
             try:
                 resp = cliente.models.generate_content(
@@ -163,14 +221,13 @@ def consultar_ofertas(cliente, producto):
                     contents=prompt
                 )
                 txt = resp.text.strip()
-                match = re.search(r'(\{[\s\S]*\})', txt)
-                if match:
-                    data = json.loads(match.group(1))
-                    if "opciones" in data and len(data["opciones"]) > 0:
-                        return data, None
+                opciones, err_parse = parsear_respuesta(txt, producto)
+                if opciones:
+                    return {"opciones": opciones, "modelo_usado": modelo}, None
             except Exception as e:
-                ultimo_error = f"{modelo} -> {str(e)}"
-                if any(k in str(e) for k in ["503", "429", "RESOURCE_EXHAUSTED"]):
+                err_str = str(e)
+                ultimo_error = f"{modelo} -> {err_str}"
+                if any(k in err_str for k in ["503", "429", "RESOURCE_EXHAUSTED", "UNAVAILABLE"]):
                     time.sleep(3)
                     continue
                 break
@@ -190,11 +247,15 @@ if boton_iniciar:
             st.stop()
             
         cliente = genai.Client(api_key=api_key)
+        
+        with st.spinner("Conectando con Google y verificando modelos activos..."):
+            modelos_disponibles = detectar_modelos_activos(cliente)
+            
         barra = st.progress(0)
         
         for i, prod in enumerate(lista_prods):
             with st.spinner(f"Buscando ofertas para: **{prod}**..."):
-                datos, error = consultar_ofertas(cliente, prod)
+                datos, error = consultar_ofertas(cliente, prod, modelos_disponibles)
                 
                 with st.container(border=True):
                     st.subheader(f"📦 {prod}")
@@ -212,6 +273,7 @@ if boton_iniciar:
                             st.warning(f"⚠️ {error if error else 'No se pudieron cargar opciones en este momento.'}")
                         else:
                             opciones = datos["opciones"]
+                            modelo_usado = datos.get("modelo_usado", "")
                             opciones.sort(key=lambda x: extraer_precio_num(x.get("precio_usd", "")))
                             
                             cols_opc = st.columns(min(len(opciones), 3))
@@ -230,6 +292,9 @@ if boton_iniciar:
                                     link_final = generar_link(tienda_nombre, op.get("link"), prod)
                                     st.link_button("🔗 Ver Producto", link_final, use_container_width=True)
                                     
+                            if modelo_usado:
+                                st.caption(f"⚡ *Respuesta generada con: {modelo_usado}*")
+                                
             barra.progress((i + 1) / len(lista_prods))
             time.sleep(3)
             
