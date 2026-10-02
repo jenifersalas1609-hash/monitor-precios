@@ -8,7 +8,6 @@ import openpyxl
 import urllib.parse
 from PIL import Image
 from google import genai
-from google.genai import types
 
 st.set_page_config(
     page_title="Monitor de Precios - IA",
@@ -17,10 +16,10 @@ st.set_page_config(
 )
 
 st.title("🛒 Monitor de Precios: Mercado Libre vs. Cashea")
-st.markdown("Analiza productos con su imagen de referencia y compara opciones de menor a mayor precio en comercios de Venezuela.")
+st.markdown("Compara productos con foto de referencia y analiza opciones de menor a mayor precio en Venezuela.")
 
 with st.sidebar:
-    st.header("⚙️️ Entrada de Productos")
+    st.header("⚙ Entrada de Productos")
     
     opcion_origen = st.radio(
         "Selecciona el origen:",
@@ -43,7 +42,7 @@ with st.sidebar:
             help="Sube tu archivo COTIZACION_PRODUCTOS_BELLEZA_CON_IMAGENES.xlsx"
         )
         
-    limite_productos = st.slider("Cantidad de productos a analizar:", min_value=1, max_value=15, value=3)
+    limite_productos = st.slider("Cantidad de productos a analizar:", min_value=1, max_value=15, value=2)
     boton_iniciar = st.button("🔍 Iniciar Monitoreo", type="primary", use_container_width=True)
 
 def generar_link(tienda, link_original, producto):
@@ -118,19 +117,19 @@ def extraer_precio_num(texto):
 
 def consultar_ofertas(cliente, producto):
     prompt = f"""
-    Actúa como un cotizador de compras e investigación de mercado en Venezuela.
-    Para el producto: "{producto}", genera 3 opciones comparativas representativas del comercio venezolano.
+    Actúa como un experto investigador de compras en el mercado venezolano.
+    Para el producto: "{producto}", genera 3 opciones comparativas reales disponibles en Venezuela.
     
-    Debes incluir opciones entre:
+    Opciones a considerar:
     1. Mercado Libre Venezuela (mercadolibre.com.ve)
-    2. Comercios aliados a la red Cashea en Venezuela (por ejemplo Farmatodo, Traki, Mundo Total, Ivoo, Damasco, SoyTechno, Multimax, etc.).
+    2. Red de comercios aliados a Cashea en Venezuela (por ejemplo: Farmatodo, Traki, Mundo Total, Ivoo, Damasco, SoyTechno, Multimax, etc., según corresponda).
     
     Requisitos:
-    - Ordena las opciones de la MÁS ECONÓMICA a la MÁS COSTOSA según el precio en USD.
-    - Indica el precio en USD (ejemplo: "$14", "$19", "$25").
-    - Si la opción es de un aliado Cashea, marca 'es_cashea': true y detalla el pago en cuotas e inicial estimado.
+    - Ordena las opciones de la MÁS BARATA a la MÁS COSTOSA según el precio en USD.
+    - Indica el precio en USD (ejemplo: "$12", "$18", "$24").
+    - Si la opción es de un aliado de Cashea, pon 'es_cashea': true y detalla el plan estimado de cuotas e inicial.
     
-    Responde estrictamente con un objeto JSON válido con esta estructura:
+    Responde ÚNICAMENTE con un JSON válido sin texto adicional antes ni después:
     {{
         "producto": "{producto}",
         "opciones": [
@@ -139,7 +138,7 @@ def consultar_ofertas(cliente, producto):
                 "titulo": "Descripción del producto o publicación",
                 "precio_usd": "$XX",
                 "es_cashea": true,
-                "plan_cashea": "Inicial $XX + 3 cuotas de $XX (o dejar vacío si no es Cashea)",
+                "plan_cashea": "Inicial $XX + 3 cuotas de $XX (o vacío si no es Cashea)",
                 "link": "URL",
                 "detalles": "Disponibilidad o garantía"
             }}
@@ -147,17 +146,21 @@ def consultar_ofertas(cliente, producto):
     }}
     """
     
-    modelos = ["gemini-2.0-flash", "gemini-1.5-flash"]
+    # Lista de modelos con prioridad a los más rápidos y disponibles
+    modelos = [
+        "gemini-2.0-flash-lite",
+        "gemini-1.5-flash-8b",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash"
+    ]
+    
+    ultimo_error = ""
     for modelo in modelos:
         for intento in range(2):
             try:
                 resp = cliente.models.generate_content(
                     model=modelo,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.2
-                    )
+                    contents=prompt
                 )
                 txt = resp.text.strip()
                 match = re.search(r'(\{[\s\S]*\})', txt)
@@ -166,12 +169,13 @@ def consultar_ofertas(cliente, producto):
                     if "opciones" in data and len(data["opciones"]) > 0:
                         return data, None
             except Exception as e:
-                err_str = str(e)
-                if any(k in err_str for k in ["503", "429"]):
-                    time.sleep(4)
+                ultimo_error = f"{modelo} -> {str(e)}"
+                if any(k in str(e) for k in ["503", "429", "RESOURCE_EXHAUSTED"]):
+                    time.sleep(3)
                     continue
                 break
-    return None, "Servicio saturado. Intenta nuevamente."
+                
+    return None, f"Aviso de Google: {ultimo_error}"
 
 if boton_iniciar:
     lista_prods, dict_imgs = procesar_archivo()
