@@ -13,7 +13,7 @@ st.set_page_config(
 )
 
 st.title("🛒 Comparador de Precios: De Menor a Mayor")
-st.markdown("Analiza productos desde Google Sheets o archivo local, ordenando las ofertas desde la más barata hasta la más costosa.")
+st.markdown("Analiza productos desde Google Sheets, Excel (.xlsx), CSV o TXT en tiendas de Venezuela (Mercado Libre y comercios Cashea).")
 
 # Barra lateral
 with st.sidebar:
@@ -21,7 +21,7 @@ with st.sidebar:
     
     opcion_origen = st.radio(
         "Selecciona el origen de los productos:",
-        ["🔗 Enlace de Google Sheets (Drive)", "📁 Subir archivo (.txt o .csv)"]
+        ["📁 Subir archivo (.xlsx, .csv, .txt)", "🔗 Enlace de Google Sheets (Drive)"]
     )
     
     url_sheet = ""
@@ -32,14 +32,37 @@ with st.sidebar:
             "Pega el enlace de tu Google Sheet:",
             placeholder="https://docs.google.com/spreadsheets/d/.../edit"
         )
-        st.caption("Recuerda compartir el archivo como: 'Cualquier persona con el enlace (Lector)'.")
+        st.caption("Asegúrate de compartirlo como: 'Cualquier persona con el enlace (Lector)'.")
     else:
-        archivo_subido = st.file_uploader("Sube tu archivo", type=["txt", "csv"])
+        archivo_subido = st.file_uploader(
+            "Sube tu archivo de productos", 
+            type=["xlsx", "csv", "txt"],
+            help="Soporta libros de Excel (.xlsx), tablas CSV o archivos de texto (.txt)."
+        )
         
     limite_productos = st.slider("Cantidad de productos a analizar:", min_value=1, max_value=25, value=5)
     
     st.markdown("---")
     boton_iniciar = st.button("🔍 Iniciar Monitoreo Comparativo", type="primary", use_container_width=True)
+
+def extraer_columna_productos(df):
+    """Detecta de forma inteligente la columna con los nombres de productos."""
+    col_candidata = None
+    # Buscar columnas con nombres clave comunes
+    for col in df.columns:
+        col_str = str(col).strip().upper()
+        if any(k in col_str for k in ["PRODUCTO", "DESCRIPCION", "DESCRIPCIÓN", "ARTICULO", "ARTÍCULO", "NOMBRE"]):
+            col_candidata = col
+            break
+            
+    if col_candidata is not None:
+        serie = df[col_candidata].dropna()
+    else:
+        # Si no encuentra un encabezado específico, toma la primera columna con texto
+        serie = df.iloc[:, 0].dropna()
+        
+    productos = [str(x).strip() for x in serie if str(x).strip() and not str(x).strip().startswith("#")]
+    return productos
 
 def obtener_productos():
     productos = []
@@ -50,25 +73,34 @@ def obtener_productos():
             csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
             try:
                 df = pd.read_csv(csv_url)
-                primera_columna = df.iloc[:, 0].dropna().astype(str).tolist()
-                productos = [p.strip() for p in primera_columna if p.strip() and not p.strip().startswith("#")]
+                productos = extraer_columna_productos(df)
             except Exception as e:
                 st.error(f"Error al leer Google Sheets: {e}")
         else:
             st.error("El enlace de Google Sheets no es válido.")
             
     elif archivo_subido is not None:
-        contenido = archivo_subido.getvalue().decode("utf-8")
-        lineas = contenido.splitlines()
-        for linea in lineas:
-            linea_limpia = linea.strip()
-            if linea_limpia and not linea_limpia.startswith("#"):
-                productos.append(linea_limpia.split(",")[0].strip())
+        nombre = archivo_subido.name.lower()
+        try:
+            if nombre.endswith(".xlsx"):
+                df = pd.read_excel(archivo_subido)
+                productos = extraer_columna_productos(df)
+            elif nombre.endswith(".csv"):
+                df = pd.read_csv(archivo_subido)
+                productos = extraer_columna_productos(df)
+            else:  # Archivo de texto plano .txt
+                contenido = archivo_subido.getvalue().decode("utf-8", errors="ignore")
+                for linea in contenido.splitlines():
+                    limpia = linea.strip()
+                    if limpia and not limpia.startswith("#"):
+                        productos.append(limpia.split(",")[0].strip())
+        except Exception as e:
+            st.error(f"Error al procesar el archivo: {e}")
                 
     return productos[:limite_productos]
 
 def extraer_numero_precio(texto_precio):
-    """Extrae el valor numérico para poder ordenar de menor a mayor."""
+    """Extrae el valor numérico para ordenar de menor a mayor."""
     if not texto_precio:
         return 999999.0
     numeros = re.findall(r"\d+(?:\.\d+)?", str(texto_precio).replace(",", "."))
@@ -161,7 +193,6 @@ if boton_iniciar:
                         st.warning("No se pudieron cargar opciones para este producto en este intento.")
                     else:
                         opciones = datos["opciones"]
-                        # Ordenamos de menor a mayor precio numérico
                         opciones.sort(key=lambda op: extraer_numero_precio(op.get("precio_usd", "")))
                         
                         num_cols = min(len(opciones), 3)
@@ -201,7 +232,7 @@ if boton_iniciar:
                                     st.caption(f"ℹ️ {op.get('detalles')}")
                                     
                                 link_destino = op.get("link") or "[https://www.google.com](https://www.google.com)"
-                                st.link_button(f"🔗 Ir a la publicación", link_destino, use_container_width=True)
+                                st.link_button("🔗 Ir a la publicación", link_destino, use_container_width=True)
                                 
             barra.progress((i + 1) / len(lista_productos))
             time.sleep(3)
