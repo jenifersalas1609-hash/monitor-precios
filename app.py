@@ -10,30 +10,28 @@ from PIL import Image
 from google import genai
 
 st.set_page_config(
-    page_title="Monitor de Precios y Proveedores Verificados",
+    page_title="Monitor de Precios y Utilidad Comercial - Venezuela",
     page_icon="🔎",
     layout="wide"
 )
 
-# Estilos visuales para máxima nitidez de imágenes y jerarquía de datos
 st.markdown("""
 <style>
-    .card-proveedor {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 14px;
-        margin-bottom: 15px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    .badge-ml { background-color: #ffe600; color: #2d3277; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
+    .badge-cashea { background-color: #581c87; color: #ffffff; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
+    .badge-fb { background-color: #1877f2; color: #ffffff; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
+    .box-comercial {
+        background-color: #f1f5f9;
+        border-left: 5px solid #2563eb;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 8px;
     }
-    .badge-ml { background-color: #ffe600; color: #2d3277; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
-    .badge-cashea { background-color: #581c87; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
-    .badge-fb { background-color: #1877f2; color: #ffffff; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🔎 Monitor de Precios: Mercado Libre, Cashea y Marketplace")
-st.markdown("Comparativa sincera de mercado en Venezuela: 4 opciones por canal ordenadas de menor a mayor precio con reputación y ubicación.")
+st.markdown("Análisis de mercado con utilidad comercial de venta y referencias ordenadas de menor a mayor precio.")
 
 with st.sidebar:
     st.header("⚙️ Entrada de Productos")
@@ -145,66 +143,74 @@ def detectar_modelos_activos(cliente):
         pass
         
     if modelos_encontrados:
-        flash = [m for m in modelos_encontrados if "flash" in m.lower()]
+        flash = [m for m in modelos_encontrados if "flash" in m.lower() and "lite" not in m.lower()]
         otros = [m for m in modelos_encontrados if "flash" not in m.lower()]
-        return flash + otros
+        lite = [m for m in modelos_encontrados if "lite" in m.lower()]
+        return flash + otros + lite
         
     return ["gemini-2.5-flash", "gemini-2.0-flash"]
 
-def consultar_ofertas_estrictas(cliente, producto, modelos_disponibles):
+def consultar_analisis_comercial(cliente, producto, modelos_disponibles):
     prompt = f"""
-    Eres un auditor comercial de compras mayoristas y de retail en Venezuela.
-    Tu objetivo es realizar un levantamiento de precios 100% sincero para el producto: "{producto}".
+    Actúa como un experto en importación y ventas mayoristas/detal en Venezuela.
+    Realiza el levantamiento de mercado para el siguiente producto: "{producto}".
     
-    REGLAS DE ORO (CERO ALUCINACIONES):
-    1. Si para alguna plataforma NO encuentras el producto real o no existe en el catálogo venezolano, debes responder con una lista vacía [] en esa categoría. NUNCA inventes publicaciones.
-    2. En CASHEA: Solo puedes incluir comercios formales de la red Cashea en Venezuela:
-       - Cuidado capilar / electro: Ivoo, SoyTechno, Damasco, Multimax Store.
-       - Salud y belleza: Farmatodo, Locatel, Farmarket.
-       - Bolsos / Organización: Balú, Beco, Macuto, Gina, Mundo Total.
-       * PROHIBIDO poner a Traki o Daka en Cashea.
-    3. En MERCADO LIBRE: Solo publicaciones activas en mercadolibre.com.ve de vendedores con reputación positiva comprobada (MercadoLíder Gold, Platinum o Tienda Oficial).
-    4. En FACEBOOK MARKETPLACE: Precios reales de importadores o tiendas con sede o entregas en Venezuela (Caracas, Valencia, Maracay, etc.).
-    5. Debes suministrar HASTA 4 OPCIONES por cada plataforma, estrictamente ordenadas de la MÁS ECONÓMICA a la MÁS COSTOSA según el precio en USD.
+    1. UTILIDAD COMERCIAL PARA VENTA EN VENEZUELA (Sé breve, ultra preciso y con mentalidad de negocio):
+       - utilidad_comercial: Explica en 2 líneas exactamente por qué se vende este producto en Venezuela y cuál es su función principal de uso.
+       - nicho_mercado: Quién es el comprador final en Venezuela (ej: Maquilladoras a domicilio, salones de belleza, mujeres viajeras, jóvenes para TikTok/Instagram).
+       - rotacion_y_margen: Nivel de rotación estimado en el mercado local (Alta rotación / Rotación media) y su gancho comercial.
+
+    2. RELEVAMIENTO DE PRECIOS POR PLATAFORMA (Hasta 4 opciones por canal, de MENOR a MAYOR precio en USD):
+       * REGLA DE REFERENCIA: Si no encuentras el modelo idéntico exacto publicado, entrega el producto EQUIVALENTE O REFERENCIA DIRECTA más similar en función y categoría disponible en Venezuela (colocando en detalles: "Referencia equivalente del mercado").
+       
+       A) MERCADO LIBRE VENEZUELA:
+          - Publicaciones activas de vendedores calificados (MercadoLíder o Tiendas Oficiales).
+          
+       B) RED OFICIAL CASHEA:
+          - Tiendas aliadas reales: Ivoo, Damasco, SoyTechno, Multimax, Farmatodo, Locatel, Balú, Beco, Mundo Total.
+          * Traki NO está en Cashea (prohibido incluirlo).
+          - Incluye precio total y plan estimado de cuotas.
+          
+       C) FACEBOOK MARKETPLACE VENEZUELA:
+          - Precios de importadores o tiendas activas en Caracas, Valencia, Maracay o Maracaibo.
     
-    Estructura JSON obligatoria:
+    Responde ÚNICAMENTE con este JSON:
     {{
         "producto": "{producto}",
+        "comercial": {{
+            "utilidad_comercial": "Breve explicación de para qué funciona y por qué tiene demanda comercial en Venezuela.",
+            "nicho_mercado": "Público objetivo en Venezuela",
+            "rotacion_y_margen": "Estimado de rotación y gancho de venta"
+        }},
         "mercado_libre": [
             {{
-                "comercio": "Nombre del vendedor o tienda oficial",
-                "reputacion": "MercadoLíder Platinum / Tienda Oficial / etc.",
-                "ubicacion": "Caracas / Valencia / Barquisimeto / etc.",
+                "comercio": "Vendedor o Tienda Oficial",
+                "reputacion": "MercadoLíder Platinum / Gold / etc.",
+                "ubicacion": "Caracas / Valencia / etc.",
                 "precio_usd": "$XX",
-                "titulo": "Título exacto de la publicación",
-                "imagen_url": "URL pública de imagen del producto o dejar vacio",
-                "link": "URL",
-                "detalles": "Garantía, condición (nuevo) y entrega"
+                "titulo": "Título de la publicación o referencia equivalente",
+                "detalles": "Condición o nota de referencia"
             }}
         ],
         "cashea": [
             {{
-                "comercio": "Ivoo / Damasco / Farmatodo / Balú / etc.",
-                "reputacion": "Comercio Aliado Oficial Cashea",
+                "comercio": "Tienda aliada oficial",
+                "reputacion": "Comercio Aliado Cashea",
                 "ubicacion": "Nivel Nacional / Tiendas físicas",
                 "precio_usd": "$XX",
-                "plan_cashea": "Inicial $XX + 3 cuotas de$XX",
-                "titulo": "Nombre del artículo en la tienda",
-                "imagen_url": "URL pública de imagen del producto o dejar vacio",
-                "link": "URL",
-                "detalles": "Disponibilidad y condiciones"
+                "plan_cashea": "Inicial $XX + 3 cuotas de $XX",
+                "titulo": "Nombre del artículo o referencia en catálogo",
+                "detalles": "Disponibilidad"
             }}
         ],
         "facebook_marketplace": [
             {{
-                "comercio": "Nombre de la tienda, importadora o vendedor",
-                "reputacion": "Local físico / Vendedor con calificaciones / Importador directo",
-                "ubicacion": "Ciudad o sector (ej: El Cementerio, Valencia, Sabana Grande)",
+                "comercio": "Importadora o tienda",
+                "reputacion": "Tienda física / Importador directo",
+                "ubicacion": "Sector y Ciudad",
                 "precio_usd": "$XX",
-                "titulo": "Título de la publicación en Marketplace",
-                "imagen_url": "URL pública de imagen del producto o dejar vacio",
-                "link": "URL",
-                "detalles": "Modalidad de entrega (delivery o retiro en tienda)"
+                "titulo": "Título de la publicación",
+                "detalles": "Modalidad de entrega"
             }}
         ]
     }}
@@ -231,34 +237,27 @@ def consultar_ofertas_estrictas(cliente, producto, modelos_disponibles):
                     continue
                 break
                 
-    return None, None, f"Error de conexión: {ultimo_error}"
+    return None, None, f"Error: {ultimo_error}"
 
-def renderizar_bloque_plataforma(titulo_seccion, clave_plataforma, badge_clase, badge_texto, lista_opciones, prod_nombre):
+def renderizar_bloque_canal(titulo_seccion, clave_plataforma, badge_clase, badge_texto, lista_opciones, prod_nombre):
     st.markdown(f"#### <span class='{badge_clase}'>{badge_texto}</span> {titulo_seccion}", unsafe_allow_html=True)
     
     if not lista_opciones or len(lista_opciones) == 0:
-        st.warning(f"🚫 **NO DISPONIBLE**: No se encontraron publicaciones activas comprobables en {titulo_seccion} para este producto.")
+        st.info(f"ℹ️ Sin publicaciones directas en {titulo_seccion} actualmente.")
         return
 
-    # Ordenar estrictamente de menor a mayor precio en USD
     lista_opciones.sort(key=lambda x: extraer_precio_num(x.get("precio_usd", "")))
     
     cols = st.columns(min(len(lista_opciones), 4))
     for idx, item in enumerate(lista_opciones[:4]):
         with cols[idx]:
             with st.container(border=True):
-                st.markdown(f"**Opción {idx+1} ({'Más económica' if idx==0 else 'Alternativa'})**")
+                etiqueta = "🟢 Opción Más Económica" if idx == 0 else f"Opción {idx+1}"
+                st.markdown(f"**{etiqueta}**")
+                st.markdown(f"## 💵 {item.get('precio_usd', 'Consultar')}")
                 
-                # Imagen del proveedor en el mercado
-                img_prov = item.get("imagen_url")
-                if img_prov and str(img_prov).startswith("http"):
-                    st.image(img_prov, use_container_width=True, caption="Foto del Proveedor")
-                else:
-                    placeholder_img = f"https://placehold.co/400x300/f8fafc/475569?text={urllib.parse.quote(item.get('comercio', 'Foto Mercado'))}"
-                    st.image(placeholder_img, use_container_width=True, caption="Catálogo Mercado")
-                
-                st.markdown(f"### 💵 {item.get('precio_usd', 'Consultar')}")
-                st.markdown(f"🏪 **Comercio:** {item.get('comercio', 'No especificado')}")
+                comercio = item.get('comercio', 'Comercio')
+                st.markdown(f"🏪 **{comercio}**")
                 st.caption(f"⭐ **Reputación:** {item.get('reputacion', 'Vendedor Activo')}")
                 st.caption(f"📍 **Ubicación:** {item.get('ubicacion', 'Venezuela')}")
                 
@@ -266,12 +265,11 @@ def renderizar_bloque_plataforma(titulo_seccion, clave_plataforma, badge_clase, 
                     st.info(f"🟣 **Cashea:** {item.get('plan_cashea')}")
                     
                 st.caption(f"📝 *{item.get('titulo', prod_nombre)}*")
-                
                 if item.get("detalles"):
                     st.caption(f"ℹ️ {item.get('detalles')}")
                     
-                url_btn = generar_link_directo(clave_plataforma, item.get("comercio", ""), item.get("link"), prod_nombre)
-                st.link_button("🔗 Ir a la Publicación Directa", url_btn, use_container_width=True)
+                url_btn = generar_link_directo(clave_plataforma, comercio, item.get("link"), prod_nombre)
+                st.link_button("🔗 Ver Publicación / Referencia", url_btn, use_container_width=True)
 
 if boton_iniciar:
     lista_prods, dict_imgs = procesar_archivo()
@@ -279,7 +277,7 @@ if boton_iniciar:
     if not lista_prods:
         st.warning("⚠️ No se encontraron productos para analizar.")
     else:
-        st.info(f"📋 Analizando {len(lista_prods)} producto(s) con verificación rigurosa de canales...")
+        st.info(f"📋 Analizando {len(lista_prods)} producto(s) con foco comercial y cotizaciones...")
         api_key = st.secrets.get("GEMINI_API_KEY")
         if not api_key:
             st.error("❌ Falta GEMINI_API_KEY en Secrets.")
@@ -287,38 +285,51 @@ if boton_iniciar:
             
         cliente = genai.Client(api_key=api_key)
         
-        with st.spinner("Sincronizando con Google y seleccionando modelo activo..."):
+        with st.spinner("Conectando con Google y seleccionando modelo analítico..."):
             modelos_disponibles = detectar_modelos_activos(cliente)
             
         barra = st.progress(0)
         
         for i, prod in enumerate(lista_prods):
-            with st.spinner(f"Verificando canales comerciales para: **{prod}**..."):
-                datos, modelo_usado, error = consultar_ofertas_estrictas(cliente, prod, modelos_disponibles)
+            with st.spinner(f"Analizando: **{prod}**..."):
+                datos, modelo_usado, error = consultar_analisis_comercial(cliente, prod, modelos_disponibles)
                 
                 with st.container(border=True):
                     st.subheader(f"📦 {prod}")
                     
-                    # Fila superior: Producto de referencia
-                    col_foto_ref, col_info_ref = st.columns([1, 4])
-                    with col_foto_ref:
+                    # Fila Superior: Tu foto del Excel + Ficha de Utilidad Comercial en Venezuela
+                    col_foto, col_comercial = st.columns([1, 2.8])
+                    
+                    with col_foto:
                         st.markdown("**📸 Tu Foto de Referencia (Excel):**")
                         if prod in dict_imgs:
                             st.image(dict_imgs[prod], use_container_width=True)
                         else:
                             st.info("Sin foto en el archivo")
-                    with col_info_ref:
-                        st.markdown("**Criterio de Búsqueda:** Precios reales validados de menor a mayor. Si un canal no dispone del artículo, se marca como no disponible.")
+                            
+                    with col_comercial:
+                        st.markdown("**💼 Utilidad Comercial para Venta en Venezuela:**")
+                        com = datos.get("comercial", {}) if (datos and isinstance(datos, dict)) else {}
+                        
+                        utilidad_txt = com.get("utilidad_comercial", "Artículo de alta demanda en el mercado de belleza y cuidado personal venezolano.")
+                        st.markdown(f"<div class='box-comercial'><b>🎯 Propósito de Venta:</b> {utilidad_txt}</div>", unsafe_allow_html=True)
+                        
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            st.markdown(f"👥 **Nicho / Comprador:** {com.get('nicho_mercado', 'Público general / Estilistas')}")
+                        with c2:
+                            st.markdown(f"📈 **Rotación / Gancho:** {com.get('rotacion_y_margen', 'Demanda constante')}")
+                            
                         if modelo_usado:
-                            st.caption(f"⚡ Modelo analítico: `{modelo_usado}`")
-                    
+                            st.caption(f"⚡ *Modelo analítico: {modelo_usado}*")
+                            
                     st.divider()
                     
                     if error or not datos:
-                        st.error(f"⚠️ {error if error else 'No fue posible levantar la información para este producto.'}")
+                        st.error(f"⚠️ {error if error else 'No se pudo obtener la información de precios.'}")
                     else:
-                        # 1. MERCADO LIBRE VENEZUELA
-                        renderizar_bloque_plataforma(
+                        # 1. MERCADO LIBRE
+                        renderizar_bloque_canal(
                             "MERCADO LIBRE VENEZUELA", 
                             "mercado_libre", 
                             "badge-ml", 
@@ -329,8 +340,8 @@ if boton_iniciar:
                         st.write("")
                         
                         # 2. RED OFICIAL CASHEA
-                        renderizar_bloque_plataforma(
-                            "RED OFICIAL CASHEA (Comercios Verificados)", 
+                        renderizar_bloque_canal(
+                            "RED OFICIAL CASHEA", 
                             "cashea", 
                             "badge-cashea", 
                             "🟣 CASHEA", 
@@ -339,8 +350,8 @@ if boton_iniciar:
                         )
                         st.write("")
                         
-                        # 3. FACEBOOK MARKETPLACE VENEZUELA
-                        renderizar_bloque_plataforma(
+                        # 3. FACEBOOK MARKETPLACE
+                        renderizar_bloque_canal(
                             "FACEBOOK MARKETPLACE VENEZUELA", 
                             "facebook_marketplace", 
                             "badge-fb", 
@@ -353,4 +364,4 @@ if boton_iniciar:
             time.sleep(3)
             
         st.balloons()
-        st.success("🎉 ¡Levantamiento de precios y proveedores finalizado con éxito!")
+        st.success("🎉 ¡Análisis y cotizaciones completadas con éxito!")
