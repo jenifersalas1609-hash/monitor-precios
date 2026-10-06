@@ -10,16 +10,38 @@ from PIL import Image
 from google import genai
 
 st.set_page_config(
-    page_title="Monitor de Precios y Utilidad Comercial - Venezuela",
+    page_title="Monitor de Precios y Proveedores - Venezuela",
     page_icon="🔎",
     layout="wide"
 )
 
+# Estilos CSS personalizados con diseño comercial e insignias de logos
 st.markdown("""
 <style>
-    .badge-ml { background-color: #ffe600; color: #2d3277; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
-    .badge-cashea { background-color: #581c87; color: #ffffff; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
-    .badge-fb { background-color: #1877f2; color: #ffffff; padding: 4px 10px; border-radius: 6px; font-weight: bold; font-size: 0.85rem; }
+    /* Estilos de las insignias con logo oficial */
+    .badge-plataforma {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 8px;
+        font-weight: 700;
+        font-size: 0.95rem;
+        margin-bottom: 12px;
+    }
+    .badge-ml {
+        background-color: #ffe600;
+        color: #2d3277;
+        border: 1px solid #eed600;
+    }
+    .badge-cashea {
+        background-color: #581c87;
+        color: #ffffff;
+    }
+    .badge-fb {
+        background-color: #1877f2;
+        color: #ffffff;
+    }
     .box-comercial {
         background-color: #f1f5f9;
         border-left: 5px solid #2563eb;
@@ -31,7 +53,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🔎 Monitor de Precios: Mercado Libre, Cashea y Marketplace")
-st.markdown("Análisis de mercado con utilidad comercial de venta y referencias ordenadas de menor a mayor precio.")
+st.markdown("Análisis comercial y cotizaciones en Venezuela con logos oficiales, utilidad de venta y referencias ordenadas de menor a mayor precio.")
 
 with st.sidebar:
     st.header("⚙️ Entrada de Productos")
@@ -239,8 +261,33 @@ def consultar_analisis_comercial(cliente, producto, modelos_disponibles):
                 
     return None, None, f"Error: {ultimo_error}"
 
-def renderizar_bloque_canal(titulo_seccion, clave_plataforma, badge_clase, badge_texto, lista_opciones, prod_nombre):
-    st.markdown(f"#### <span class='{badge_clase}'>{badge_texto}</span> {titulo_seccion}", unsafe_allow_html=True)
+def renderizar_bloque_canal(titulo_seccion, clave_plataforma, lista_opciones, prod_nombre):
+    # Insignias con logotipos oficiales integrados
+    if clave_plataforma == "mercado_libre":
+        encabezado_html = """
+        <div class="badge-plataforma badge-ml">
+            <img src="https://http2.mlstatic.com/frontend-assets/ui-navigation/5.18.9/mercadolibre/logo__small.png" height="22" style="vertical-align: middle;">
+            <span>MERCADO LIBRE VENEZUELA</span>
+        </div>
+        """
+    elif clave_plataforma == "cashea":
+        encabezado_html = """
+        <div class="badge-plataforma badge-cashea">
+            <span style="background: #ffffff; color: #581c87; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px;">C</span>
+            <span>RED OFICIAL CASHEA</span>
+        </div>
+        """
+    elif clave_plataforma == "facebook_marketplace":
+        encabezado_html = """
+        <div class="badge-plataforma badge-fb">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png" height="20" style="vertical-align: middle; border-radius: 50%;">
+            <span>FACEBOOK MARKETPLACE VENEZUELA</span>
+        </div>
+        """
+    else:
+        encabezado_html = f"<h4>{titulo_seccion}</h4>"
+
+    st.markdown(encabezado_html, unsafe_allow_html=True)
     
     if not lista_opciones or len(lista_opciones) == 0:
         st.info(f"ℹ️ Sin publicaciones directas en {titulo_seccion} actualmente.")
@@ -328,37 +375,16 @@ if boton_iniciar:
                     if error or not datos:
                         st.error(f"⚠️ {error if error else 'No se pudo obtener la información de precios.'}")
                     else:
-                        # 1. MERCADO LIBRE
-                        renderizar_bloque_canal(
-                            "MERCADO LIBRE VENEZUELA", 
-                            "mercado_libre", 
-                            "badge-ml", 
-                            "🟡 MERCADO LIBRE", 
-                            datos.get("mercado_libre", []), 
-                            prod
-                        )
+                        # 1. MERCADO LIBRE VENEZUELA (Con logo oficial)
+                        renderizar_bloque_canal("MERCADO LIBRE VENEZUELA", "mercado_libre", datos.get("mercado_libre", []), prod)
                         st.write("")
                         
-                        # 2. RED OFICIAL CASHEA
-                        renderizar_bloque_canal(
-                            "RED OFICIAL CASHEA", 
-                            "cashea", 
-                            "badge-cashea", 
-                            "🟣 CASHEA", 
-                            datos.get("cashea", []), 
-                            prod
-                        )
+                        # 2. RED OFICIAL CASHEA (Con insignia oficial)
+                        renderizar_bloque_canal("RED OFICIAL CASHEA", "cashea", datos.get("cashea", []), prod)
                         st.write("")
                         
-                        # 3. FACEBOOK MARKETPLACE
-                        renderizar_bloque_canal(
-                            "FACEBOOK MARKETPLACE VENEZUELA", 
-                            "facebook_marketplace", 
-                            "badge-fb", 
-                            "🔵 MARKETPLACE", 
-                            datos.get("facebook_marketplace", []), 
-                            prod
-                        )
+                        # 3. FACEBOOK MARKETPLACE (Con logo oficial)
+                        renderizar_bloque_canal("FACEBOOK MARKETPLACE VENEZUELA", "facebook_marketplace", datos.get("facebook_marketplace", []), prod)
                         
             barra.progress((i + 1) / len(lista_prods))
             time.sleep(3)
