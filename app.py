@@ -12,12 +12,12 @@ from PIL import Image
 from google import genai
 
 st.set_page_config(
-    page_title="RACOVE | Inteligencia Comercial y Sourcing",
+    page_title="RACOVE",
     page_icon="🎯",
     layout="wide"
 )
 
-# Estilos CSS unificados para ambos módulos
+# Estilos CSS unificados y limpios
 st.markdown("""
 <style>
     /* Insignias de plataformas Venezuela */
@@ -56,39 +56,28 @@ st.markdown("""
         margin-bottom: 10px;
     }
 
-    /* Tarjetas estilo catálogo con foto panorámica superior */
-    .card-item {
+    /* Tarjetas limpias de precios (sin imagen forzada) */
+    .card-item-clean {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        overflow: hidden;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        border-radius: 10px;
+        padding: 14px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
         display: flex;
         flex-direction: column;
         height: 100%;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
     }
-    .card-item:hover { box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.09); }
-    .card-img-top {
-        width: 100%;
-        height: 165px;
-        object-fit: cover;
-        border-radius: 12px 12px 0 0;
-        background-color: #f1f5f9;
-        display: block;
-    }
-    .card-content {
-        padding: 12px;
-        display: flex;
-        flex-direction: column;
-        flex-grow: 1;
+    .card-item-clean:hover {
+        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+        border-color: #cbd5e1;
     }
     .card-badge-econ {
         background-color: #dcfce7;
         color: #166534;
         font-size: 0.75rem;
         font-weight: 700;
-        padding: 2px 8px;
+        padding: 3px 8px;
         border-radius: 4px;
         display: inline-block;
         margin-bottom: 6px;
@@ -98,10 +87,10 @@ st.markdown("""
         font-size: 1.45rem;
         font-weight: 800;
         color: #0f172a;
-        margin: 4px 0;
+        margin: 4px 0 6px 0;
     }
-    .card-store { font-size: 0.95rem; font-weight: 700; color: #1e293b; }
-    .card-reputation { font-size: 0.8rem; color: #64748b; margin-bottom: 4px; }
+    .card-store { font-size: 0.95rem; font-weight: 700; color: #1e293b; margin-bottom: 2px; }
+    .card-reputation { font-size: 0.8rem; color: #64748b; margin-bottom: 2px; }
     .card-cashea-plan {
         background-color: #f3e8ff;
         color: #6b21a8;
@@ -112,12 +101,12 @@ st.markdown("""
         margin: 6px 0;
     }
     .card-title-text {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         color: #475569;
-        line-height: 1.25;
-        height: 36px;
+        line-height: 1.3;
+        height: 38px;
         overflow: hidden;
-        margin-top: 4px;
+        margin-top: 6px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -167,45 +156,68 @@ def detectar_modelos_activos(cliente):
         
     return ["gemini-2.5-flash", "gemini-2.0-flash"]
 
-def bytes_a_base64_img(bytes_img):
-    try:
-        encoded = base64.b64encode(bytes_img).decode("utf-8")
-        return f"data:image/jpeg;base64,{encoded}"
-    except Exception:
-        return ""
-
 def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_precio_ml=None):
+    # Fórmulas internas (confidenciales, no se exponen porcentajes al usuario)
     precio_n = round(costo_unitario * 1.60, 2)
     precio_4 = round(costo_unitario * 2.00, 2)
-    precio_divisa_exacto = precio_4 * 1.35
-    precio_divisa = float(math.ceil(precio_divisa_exacto))
+    precio_divisa = float(math.ceil(precio_4 * 1.35))
     
+    # Precio Cashea base: 35% más sobre el precio Divisa (redondeado hacia arriba)
+    precio_cashea_base = float(math.ceil(precio_divisa * 1.35))
+    
+    # Evaluación de Cashea frente a la competencia
     alerta_cashea = None
     if menor_precio_cashea and menor_precio_cashea < 999900.0:
-        if menor_precio_cashea < precio_divisa:
-            alerta_cashea = (
-                f"⚠️ **ALERTA DE CASHEA**: La competencia en Cashea vende a **${menor_precio_cashea:.2f} USD**, "
-                f"lo cual está **por debajo de tu Precio Divisa (${precio_divisa:.2f} USD)**. "
-                f"Tu piso obligatorio es **${precio_divisa:.2f} USD** para no quemar margen en cuotas."
-            )
-            precio_sug_cashea = precio_divisa
+        if menor_precio_cashea < precio_cashea_base:
+            alerta_cashea = {
+                "tipo": "error",
+                "mensaje": (
+                    f"⚠️ **Fuera de mercado en Cashea**: La competencia vende a **${menor_precio_cashea:.2f} USD**, "
+                    f"por debajo de tu precio requerido de Cashea (**${precio_cashea_base:.2f} USD**). "
+                    f"Se sugiere mantener **${precio_cashea_base:.2f} USD** para no comprometer tu margen en cuotas."
+                )
+            }
+            precio_sug_cashea = precio_cashea_base
         else:
-            precio_sug_cashea = max(precio_divisa, round(menor_precio_cashea - 1.0, 2))
+            precio_sug_cashea = max(precio_cashea_base, round(menor_precio_cashea - 1.0, 2))
+            alerta_cashea = {
+                "tipo": "success",
+                "mensaje": (
+                    f"🟢 **En competencia en Cashea**: La competencia vende a **${menor_precio_cashea:.2f} USD**. "
+                    f"Tu precio sugerido de **${precio_sug_cashea:.2f} USD** es competitivo y protege tu margen."
+                )
+            }
     else:
-        precio_sug_cashea = precio_divisa
+        precio_sug_cashea = precio_cashea_base
+        alerta_cashea = {
+            "tipo": "info",
+            "mensaje": f"ℹ️ Sin referencia directa en Cashea. Precio sugerido de venta: **${precio_sug_cashea:.2f} USD**."
+        }
         
+    # Evaluación de Mercado Libre frente a la competencia
     alerta_ml = None
     if menor_precio_ml and menor_precio_ml < 999900.0:
         if menor_precio_ml < precio_n:
-            alerta_ml = (
-                f"⚠️ **ALERTA MERCADO LIBRE**: El vendedor más económico está en **${menor_precio_ml:.2f} USD** "
-                f"(por debajo de tu Precio N de ${precio_n:.2f} USD). Para Mercado Libre no bajes de tu Precio N."
-            )
+            alerta_ml = {
+                "tipo": "error",
+                "mensaje": (
+                    f"⚠️ **Fuera de mercado en Mercado Libre**: El vendedor más bajo vende a **${menor_precio_ml:.2f} USD**, "
+                    f"por debajo de tu Precio N (**${precio_n:.2f} USD**)."
+                )
+            }
             precio_sug_ml = precio_n
         else:
             precio_sug_ml = max(precio_n, round(menor_precio_ml - 0.50, 2))
+            alerta_ml = {
+                "tipo": "success",
+                "mensaje": (
+                    f"🟢 **En competencia en Mercado Libre**: Mínimo de competencia a **${menor_precio_ml:.2f} USD**. "
+                    f"Precio sugerido: **${precio_sug_ml:.2f} USD**."
+                )
+            }
     else:
         precio_sug_ml = precio_4
+        alerta_ml = None
         
     return {
         "precio_n": precio_n,
@@ -218,29 +230,24 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
     }
 
 # -------------------------------------------------------------
-# BARRA LATERAL: SELECTOR DE MÓDULO
+# BARRA LATERAL: SELECTOR DE MÓDULO (NOMBRE SOLO RACOVE)
 # -------------------------------------------------------------
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=60)
+    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=55)
     st.title("🎯 RACOVE")
-    st.caption("Radar Comercial Venezuela & Sourcing")
     
-    opciones_modulos = [
-        "🇻🇪 RACOVE (Mercado Nacional y Rentabilidad)", 
-        "🇨🇳 Auditoría China (Fábricas y Compras)"
-    ]
-    modulo_activo = st.radio("🌐 Selecciona el Módulo:", opciones_modulos, key="radio_modulo_principal")
+    opciones_modulos = ["🇻🇪 RACOVE", "🇨🇳 Sourcing China"]
+    modulo_activo = st.radio("Módulo:", opciones_modulos, key="radio_modulo_principal")
     st.divider()
 
 # =============================================================================
 # MÓDULO 1: RACOVE (VENTAS, RADAR Y MATRIZ DE PRECIOS)
 # =============================================================================
 if "RACOVE" in str(modulo_activo):
-    st.title("🎯 RACOVE: Radar Comercial de Precios y Rentabilidad")
-    st.markdown("Auditoría de mercado nacional con catálogo visual y matriz de 5 precios estratégicos.")
+    st.title("🎯 RACOVE")
 
     with st.sidebar:
-        st.subheader("📥 Entrada de Productos")
+        st.subheader("Entrada de Productos")
         opcion_origen_ve = st.radio(
             "Selecciona el origen:",
             ["📁 Subir archivo Excel (.xlsx)", "🔗 Enlace de Google Sheets (Drive)"],
@@ -251,16 +258,16 @@ if "RACOVE" in str(modulo_activo):
         
         if "Google Sheets" in opcion_origen_ve:
             url_sheet_ve = st.text_input("Enlace de Google Sheets:", key="sheet_ve")
-            st.caption("Asegúrate de compartirlo como: 'Cualquier persona con el enlace (Lector)'.")
+            st.caption("Compartido como: 'Cualquier persona con el enlace (Lector)'.")
         else:
             archivo_subido_ve = st.file_uploader(
-                "Sube tu archivo de cotizaciones (.xlsx)", 
+                "Sube archivo de cotizaciones (.xlsx)", 
                 type=["xlsx", "csv", "txt"],
                 key="uploader_ve"
             )
             
         limite_prods_ve = st.slider("Cantidad de productos a analizar:", 1, 13, 2, key="slider_ve")
-        boton_iniciar_ve = st.button("🚀 Iniciar Análisis RACOVE", type="primary", use_container_width=True)
+        boton_iniciar_ve = st.button("🚀 Iniciar Análisis", type="primary", use_container_width=True)
 
     def generar_link_ve(plataforma, comercio, link_original, producto):
         if link_original and str(link_original).startswith("http") and "..." not in link_original:
@@ -401,7 +408,7 @@ if "RACOVE" in str(modulo_activo):
                     break
         return None, None, f"Error: {ultimo_error}"
 
-    def renderizar_canal_ve(titulo_seccion, clave_plataforma, lista_opciones, prod_nombre, img_ref_b64):
+    def renderizar_canal_ve(titulo_seccion, clave_plataforma, lista_opciones, prod_nombre):
         if clave_plataforma == "mercado_libre":
             encabezado_html = """<div class="badge-plataforma badge-ml"><img src="https://http2.mlstatic.com/frontend-assets/ui-navigation/5.18.9/mercadolibre/logo__small.png" height="22" style="vertical-align: middle;"><span>MERCADO LIBRE VENEZUELA</span></div>"""
         elif clave_plataforma == "cashea":
@@ -420,33 +427,26 @@ if "RACOVE" in str(modulo_activo):
         cols = st.columns(min(len(lista_opciones), 4))
         for idx, item in enumerate(lista_opciones[:4]):
             with cols[idx]:
-                img_src = item.get("imagen_url")
-                if not (img_src and str(img_src).startswith("http")):
-                    img_src = img_ref_b64 if img_ref_b64 else f"https://placehold.co/400x250/f8fafc/475569?text={urllib.parse.quote(item.get('comercio', 'Producto'))}"
                 etiqueta_badge = "🟢 Más Económica" if idx == 0 else f"Opción {idx+1}"
                 plan_html = f"<div class='card-cashea-plan'>🟣 {item.get('plan_cashea')}</div>" if item.get("plan_cashea") else ""
                 
-                card_html = f"""
-                <div class="card-item">
-                    <img src="{img_src}" class="card-img-top" alt="{item.get('comercio', 'Producto')}">
-                    <div class="card-content">
-                        <span class="card-badge-econ">{etiqueta_badge}</span>
-                        <div class="card-price">{item.get('precio_usd', 'Consultar')}</div>
-                        <div class="card-store">🏪 {item.get('comercio', 'Comercio')}</div>
-                        <div class="card-reputation">⭐ {item.get('reputacion', 'Vendedor Activo')}</div>
-                        <div class="card-reputation">📍 {item.get('ubicacion', 'Venezuela')}</div>
-                        {plan_html}
-                        <div class="card-title-text" title="{item.get('titulo', prod_nombre)}">📝 {item.get('titulo', prod_nombre)}</div>
-                    </div>
-                </div>
-                """
+                # Tarjeta limpia SIN imagen forzada
+                card_html = f"""<div class="card-item-clean">
+<span class="card-badge-econ">{etiqueta_badge}</span>
+<div class="card-price">{item.get('precio_usd', 'Consultar')}</div>
+<div class="card-store">🏪 {item.get('comercio', 'Comercio')}</div>
+<div class="card-reputation">⭐ {item.get('reputacion', 'Vendedor Activo')}</div>
+<div class="card-reputation">📍 {item.get('ubicacion', 'Venezuela')}</div>
+{plan_html}
+<div class="card-title-text" title="{item.get('titulo', prod_nombre)}">📝 {item.get('titulo', prod_nombre)}</div>
+</div>"""
                 st.markdown(card_html, unsafe_allow_html=True)
                 url_btn = generar_link_ve(clave_plataforma, item.get("comercio", ""), item.get("link"), prod_nombre)
                 st.link_button("🔗 Ver Publicación / Referencia", url_btn, use_container_width=True)
 
     # Estado inicial cuando no se ha ejecutado el análisis
     if not st.session_state.get("ve_analisis_completado"):
-        st.info("👈 **Para comenzar:** Selecciona en la barra lateral el archivo Excel o enlace de Google Sheets y haz clic en **🚀 Iniciar Análisis RACOVE**.")
+        st.info("👈 **Para comenzar:** Selecciona en la barra lateral el archivo Excel y haz clic en **🚀 Iniciar Análisis**.")
 
     if boton_iniciar_ve:
         lista_p, dict_i, dict_costos = procesar_archivo_ve()
@@ -495,8 +495,8 @@ if "RACOVE" in str(modulo_activo):
 
     if st.session_state["ve_analisis_completado"] and st.session_state["ve_lista_resultados"]:
         tab_radar, tab_matriz = st.tabs([
-            "🔎 1. RADAR DE MERCADO NACIONAL (Catálogo Competencia)", 
-            "🧮 2. MI MATRIZ Y RENTABILIDAD (Precios de Venta y Margen)"
+            "🔎 1. RADAR DE MERCADO NACIONAL", 
+            "🧮 2. MATRIZ DE PRECIOS"
         ])
         
         with tab_radar:
@@ -507,15 +507,17 @@ if "RACOVE" in str(modulo_activo):
                 error = item["error"]
                 modelo_usado = item["modelo"]
                 dict_imgs = st.session_state["ve_dict_imgs"]
-                img_ref_b64 = bytes_a_base64_img(dict_imgs[prod]) if prod in dict_imgs else ""
                 
                 with st.container(border=True):
                     st.subheader(f"📦 {prod}")
-                    c_f, c_c = st.columns([1, 2.8])
+                    # Tamaño neutro y nítido para la imagen principal de referencia
+                    c_f, c_c = st.columns([1.1, 3.5])
                     with c_f:
-                        st.markdown("**📸 Tu Foto de Referencia (Excel):**")
-                        if prod in dict_imgs: st.image(dict_imgs[prod], use_container_width=True)
-                        else: st.info("Sin foto en el archivo")
+                        st.markdown("**📸 Foto de Referencia:**")
+                        if prod in dict_imgs:
+                            st.image(dict_imgs[prod], width=190)
+                        else:
+                            st.info("Sin foto")
                     with c_c:
                         st.markdown("**💼 Utilidad Comercial para Venta en Venezuela:**")
                         com = datos.get("comercial", {}) if (datos and isinstance(datos, dict)) else {}
@@ -529,15 +531,14 @@ if "RACOVE" in str(modulo_activo):
                     if error or not datos:
                         st.error(f"⚠️ {error if error else 'No se pudo obtener información de precios.'}")
                     else:
-                        renderizar_canal_ve("MERCADO LIBRE VENEZUELA", "mercado_libre", datos.get("mercado_libre", []), prod, img_ref_b64)
+                        renderizar_canal_ve("MERCADO LIBRE VENEZUELA", "mercado_libre", datos.get("mercado_libre", []), prod)
                         st.write("")
-                        renderizar_canal_ve("RED OFICIAL CASHEA", "cashea", datos.get("cashea", []), prod, img_ref_b64)
+                        renderizar_canal_ve("RED OFICIAL CASHEA", "cashea", datos.get("cashea", []), prod)
                         st.write("")
-                        renderizar_canal_ve("FACEBOOK MARKETPLACE VENEZUELA", "facebook_marketplace", datos.get("facebook_marketplace", []), prod, img_ref_b64)
+                        renderizar_canal_ve("FACEBOOK MARKETPLACE VENEZUELA", "facebook_marketplace", datos.get("facebook_marketplace", []), prod)
 
         with tab_matriz:
-            st.markdown("### 🧮 Matriz de Fijación de Precios y Protección de Margen")
-            st.info("💡 **Costos leídos automáticamente:** El costo inicial se extrajo de la Columna F de tu archivo. Puedes modificarlo libremente para simular otros escenarios.")
+            st.markdown("### 🧮 Matriz de Fijación de Precios")
             
             for idx_p, item in enumerate(st.session_state["ve_lista_resultados"]):
                 prod = item["producto"]
@@ -562,47 +563,56 @@ if "RACOVE" in str(modulo_activo):
                     
                     matriz = calcular_matriz_precios(costo, menor_c, menor_m)
                     st.write("")
+                    
+                    # 5 Columnas de precios SIN porcentajes confidenciales
                     p1, p2, p3, p4, p5 = st.columns(5)
                     with p1:
                         with st.container(border=True):
-                            st.markdown("**🏢 Precio N**\n\n*(Costo + 60%)*")
+                            st.markdown("**🏢 Precio N**")
                             st.markdown(f"### ${matriz['precio_n']:.2f}")
                     with p2:
                         with st.container(border=True):
-                            st.markdown("**📦 Precio 4**\n\n*(Costo + 100%)*")
+                            st.markdown("**📦 Precio 4**")
                             st.markdown(f"### ${matriz['precio_4']:.2f}")
                     with p3:
                         with st.container(border=True):
-                            st.markdown("**💵 Precio Divisa**\n\n*(P4+35% Red. ↑)*")
+                            st.markdown("**💵 Precio Divisa**")
                             st.markdown(f"### ${matriz['precio_divisa']:.2f}")
                     with p4:
                         with st.container(border=True):
-                            st.markdown("**🟣 Sugerido Cashea**\n\n*(Competencia)*")
+                            st.markdown("**🟣 Precio Cashea**")
                             st.markdown(f"### ${matriz['precio_sug_cashea']:.2f}")
                     with p5:
                         with st.container(border=True):
-                            st.markdown("**🟡 Sugerido ML**\n\n*(Competencia)*")
+                            st.markdown("**🟡 Precio Mercado Libre**")
                             st.markdown(f"### ${matriz['precio_sug_ml']:.2f}")
 
-                    if matriz["alerta_cashea"]: 
-                        st.error(matriz["alerta_cashea"])
-                    else: 
-                        st.success(f"🟢 **CASHEA SEGURO**: En Cashea la competencia vende a ${menor_c:.2f} USD. Tu precio sugerido (${matriz['precio_sug_cashea']:.2f} USD) supera tu piso Divisa (${matriz['precio_divisa']:.2f} USD).")
-                    if matriz["alerta_ml"]: 
-                        st.warning(matriz["alerta_ml"])
+                    # Alertas de Cashea y ML
+                    if matriz["alerta_cashea"]:
+                        if matriz["alerta_cashea"]["tipo"] == "error":
+                            st.error(matriz["alerta_cashea"]["mensaje"])
+                        elif matriz["alerta_cashea"]["tipo"] == "success":
+                            st.success(matriz["alerta_cashea"]["mensaje"])
+                        else:
+                            st.info(matriz["alerta_cashea"]["mensaje"])
+
+                    if matriz["alerta_ml"]:
+                        if matriz["alerta_ml"]["tipo"] == "error":
+                            st.error(matriz["alerta_ml"]["mensaje"])
+                        elif matriz["alerta_ml"]["tipo"] == "success":
+                            st.success(matriz["alerta_ml"]["mensaje"])
 
 # =============================================================================
-# MÓDULO 2: CHINA (AUDITORÍA 1688, ALIBABA Y ALIEXPRESS)
+# MÓDULO 2: SOURCING CHINA (1688, ALIBABA Y ALIEXPRESS)
 # =============================================================================
 else:
-    st.title("🇨🇳 Auditoría de Compras en China: 1688 vs Alibaba vs AliExpress")
-    st.markdown("Compara la cotización de tu proveedor chino con fábricas directas y exportadores para negociar mejores precios.")
+    st.title("🇨🇳 Sourcing China")
+    st.markdown("Comparativa de costos: Proveedor vs 1688 vs Alibaba vs AliExpress.")
 
     with st.sidebar:
-        st.subheader("📥 Cotización de Proveedor (China)")
-        st.caption("Sube tu archivo con: Col A: Producto | Col B: Precio Proveedor ($) | Col C: Cantidad/MOQ.")
+        st.subheader("Cotización Proveedor")
         archivo_subido_china = st.file_uploader(
-            "Sube archivo de cotización China (.xlsx / .csv)", 
+            "Sube cotización China (.xlsx / .csv)", 
             type=["xlsx", "csv"],
             key="uploader_china"
         )
@@ -730,7 +740,7 @@ else:
         return None, None, f"Error: {ultimo_error}"
 
     if not st.session_state.get("china_analisis_completado"):
-        st.info("👈 **Para comenzar:** Sube en la barra lateral tu archivo de cotizaciones con tu proveedor de China y haz clic en **🇨🇳 Iniciar Auditoría China**.")
+        st.info("👈 **Para comenzar:** Sube en la barra lateral tu archivo de cotizaciones de China y haz clic en **🇨🇳 Iniciar Auditoría China**.")
 
     if boton_iniciar_china:
         lista_c, dict_imgs_c = procesar_archivo_china()
@@ -775,7 +785,6 @@ else:
             p_prov = item_ch["precio_prov"]
             moq = item_ch["moq"]
             datos = item_ch["datos"]
-            error = item_ch["error"]
             links = generar_links_china(prod)
             
             with st.container(border=True):
