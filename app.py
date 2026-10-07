@@ -128,6 +128,8 @@ if "china_lista_resultados" not in st.session_state:
 if "china_dict_imgs" not in st.session_state:
     st.session_state["china_dict_imgs"] = {}
 
+MODELOS_RAPIDOS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+
 # -------------------------------------------------------------
 # FUNCIONES AUXILIARES GLOBALES
 # -------------------------------------------------------------
@@ -137,35 +139,12 @@ def extraer_precio_num(texto):
     nums = re.findall(r"\d+(?:\.\d+)?", str(texto).replace(",", "."))
     return float(nums[0]) if nums else 999999.0
 
-def detectar_modelos_activos(cliente):
-    modelos_encontrados = []
-    try:
-        for m in cliente.models.list():
-            nombre = getattr(m, "name", "") or str(m)
-            limpio = nombre.replace("models/", "").strip()
-            if "gemini" in limpio.lower() and "embed" not in limpio.lower():
-                modelos_encontrados.append(limpio)
-    except Exception:
-        pass
-        
-    if modelos_encontrados:
-        flash = [m for m in modelos_encontrados if "flash" in m.lower() and "lite" not in m.lower()]
-        otros = [m for m in modelos_encontrados if "flash" not in m.lower()]
-        lite = [m for m in modelos_encontrados if "lite" in m.lower()]
-        return flash + otros + lite
-        
-    return ["gemini-2.5-flash", "gemini-2.0-flash"]
-
 def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_precio_ml=None):
-    # Fórmulas internas (confidenciales, no se exponen porcentajes al usuario)
     precio_n = round(costo_unitario * 1.60, 2)
     precio_4 = round(costo_unitario * 2.00, 2)
     precio_divisa = float(math.ceil(precio_4 * 1.35))
-    
-    # Precio Cashea base: 35% más sobre el precio Divisa (redondeado hacia arriba)
     precio_cashea_base = float(math.ceil(precio_divisa * 1.35))
     
-    # Evaluación de Cashea frente a la competencia
     alerta_cashea = None
     if menor_precio_cashea and menor_precio_cashea < 999900.0:
         if menor_precio_cashea < precio_cashea_base:
@@ -194,7 +173,6 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
             "mensaje": f"ℹ️ Sin referencia directa en Cashea. Precio sugerido de venta: **${precio_sug_cashea:.2f} USD**."
         }
         
-    # Evaluación de Mercado Libre frente a la competencia
     alerta_ml = None
     if menor_precio_ml and menor_precio_ml < 999900.0:
         if menor_precio_ml < precio_n:
@@ -230,13 +208,13 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
     }
 
 # -------------------------------------------------------------
-# BARRA LATERAL: SELECTOR DE MÓDULO (NOMBRE SOLO RACOVE)
+# BARRA LATERAL: SELECTOR DE MÓDULO
 # -------------------------------------------------------------
 with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=55)
     st.title("🎯 RACOVE")
     
-    opciones_modulos = ["🇻🇪 RACOVE", "🇨🇳 Sourcing China"]
+    opciones_modulos = ["🇻🇪 RACOVE (Mercado Nacional y Rentabilidad)", "🇨🇳 Sourcing China (Auditoría de Fábricas)"]
     modulo_activo = st.radio("Módulo:", opciones_modulos, key="radio_modulo_principal")
     st.divider()
 
@@ -332,11 +310,9 @@ if "RACOVE" in str(modulo_activo):
                     if val_prod and str(val_prod).strip() and not str(val_prod).startswith("#"):
                         p_name = str(val_prod).strip()
                         productos.append(p_name)
-                        
                         costo_val = extraer_precio_num(val_costo)
                         if costo_val >= 999900: costo_val = 5.0
                         costos_referencia[p_name] = costo_val
-                        
                         if row in imgs_por_fila:
                             imagenes_referencia[p_name] = imgs_por_fila[row]
             else:
@@ -352,61 +328,34 @@ if "RACOVE" in str(modulo_activo):
                         
         return productos[:limite_prods_ve], imagenes_referencia, costos_referencia
 
-    def consultar_ve(cliente, producto, modelos_disponibles):
+    def consultar_ve(cliente, producto):
         prompt = f"""
-        Eres un auditor comercial de compras mayoristas y retail en Venezuela.
-        Realiza un levantamiento certero para el producto: "{producto}".
+        Auditor comercial retail en Venezuela. Para: "{producto}".
         
-        1. UTILIDAD COMERCIAL PARA VENTA EN VENEZUELA:
-           - utilidad_comercial: Explica en 2 líneas exactamente por qué se vende y su función práctica de uso.
-           - nicho_mercado: Perfil del comprador (ej: Maquilladoras, salones, tiendas de Instagram, público femenino).
-           - rotacion_y_margen: Nivel de rotación local y gancho comercial de reventa.
-
-        2. RELEVAMIENTO DE PRECIOS POR PLATAFORMA (4 OPCIONES POR CANAL, DE MENOR A MAYOR PRECIO EN USD):
-           * Si no encuentras el modelo idéntico exacto, entrega la REFERENCIA EQUIVALENTE más cercana en el mercado venezolano indicando "Referencia equivalente".
-           
-           A) MERCADO LIBRE VENEZUELA:
-              - Publicaciones activas de vendedores con reputación positiva (MercadoLíder Platinum / Gold / Tiendas Oficiales).
-              
-           B) RED OFICIAL CASHEA (Extraído de cashea.app/tiendas):
-              - Aliados VERIFICADOS: Beco, Balú Moda, Balú Hogar, Gina, Macuto, Parfois, Aldo Accesorios, Locatel, Farmacias Saas, IVOO, SoyTechno, Damasco, Multimax Store.
-              * REGLAS ESTRICTAS DE EXCLUSIÓN CASHEA (CERO ALUCINACIONES):
-                - FARMATODO ESTÁ PROHIBIDO (Farmatodo NO tiene Cashea).
-                - TRAKI ESTÁ PROHIBIDO (Traki NO tiene Cashea).
-                - DAKA ESTÁ PROHIBIDO (Daka NO tiene Cashea).
-              - Precio en tienda e inicial + 3 cuotas estimadas.
-              
-           C) FACEBOOK MARKETPLACE VENEZUELA:
-              - Importadores directos o tiendas físicas verificables en Caracas, Valencia o Maracay.
-              
-        Responde ÚNICAMENTE con este JSON:
+        Entrega en formato JSON estricto:
+        - comercial: {{ "utilidad_comercial": "2 líneas de uso y demanda", "nicho_mercado": "perfil comprador", "rotacion_y_margen": "rotacion local" }}
+        - mercado_libre: 3 publicaciones (comercio, reputacion, ubicacion, precio_usd, titulo)
+        - cashea: 3 aliados oficiales verificados (Beco, Balu, Locatel, Ivoo, Damasco, etc. PROHIBIDO Farmatodo/Traki/Daka): comercio, reputacion, ubicacion, precio_usd, plan_cashea, titulo
+        - facebook_marketplace: 3 publicaciones (comercio, reputacion, ubicacion, precio_usd, titulo)
+        
+        JSON:
         {{
             "producto": "{producto}",
-            "comercial": {{
-                "utilidad_comercial": "Explicación breve de uso y demanda en Venezuela.",
-                "nicho_mercado": "Público objetivo",
-                "rotacion_y_margen": "Nivel de rotación y gancho de reventa"
-            }},
-            "mercado_libre": [{{"comercio": "Vendedor o Tienda Oficial", "reputacion": "MercadoLíder Platinum/Gold", "ubicacion": "Caracas/Valencia", "precio_usd": "$XX", "titulo": "Título", "detalles": "Detalle", "imagen_url": ""}}],
-            "cashea": [{{"comercio": "Tienda aliada oficial", "reputacion": "Comercio Aliado Cashea", "ubicacion": "Tiendas físicas", "precio_usd": "$XX", "plan_cashea": "Inicial $XX + 3 cuotas $XX", "titulo": "Nombre", "detalles": "Detalle", "imagen_url": ""}}],
-            "facebook_marketplace": [{{"comercio": "Tienda o importador", "reputacion": "Local físico / Importador", "ubicacion": "Sector y Ciudad", "precio_usd": "$XX", "titulo": "Título", "detalles": "Detalle", "imagen_url": ""}}]
+            "comercial": {{ "utilidad_comercial": "...", "nicho_mercado": "...", "rotacion_y_margen": "..." }},
+            "mercado_libre": [{{"comercio": "...", "reputacion": "...", "ubicacion": "Caracas", "precio_usd": "$XX", "titulo": "..."}}],
+            "cashea": [{{"comercio": "Locatel", "reputacion": "Aliado Cashea", "ubicacion": "Nacional", "precio_usd": "$XX", "plan_cashea": "Inicial $X + 3 cuotas $X", "titulo": "..."}}],
+            "facebook_marketplace": [{{"comercio": "...", "reputacion": "Tienda", "ubicacion": "Valencia", "precio_usd": "$XX", "titulo": "..."}}]
         }}
         """
-        ultimo_error = ""
-        for modelo in modelos_disponibles:
-            for _ in range(2):
-                try:
-                    resp = cliente.models.generate_content(model=modelo, contents=prompt)
-                    match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
-                    if match:
-                        return json.loads(match.group(1)), modelo, None
-                except Exception as e:
-                    ultimo_error = str(e)
-                    if any(k in str(e) for k in ["503", "429", "RESOURCE_EXHAUSTED", "UNAVAILABLE"]):
-                        time.sleep(3)
-                        continue
-                    break
-        return None, None, f"Error: {ultimo_error}"
+        for modelo in MODELOS_RAPIDOS:
+            try:
+                resp = cliente.models.generate_content(model=modelo, contents=prompt)
+                match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
+                if match:
+                    return json.loads(match.group(1)), modelo, None
+            except Exception:
+                continue
+        return None, None, "No se pudo conectar con la API de Google"
 
     def renderizar_canal_ve(titulo_seccion, clave_plataforma, lista_opciones, prod_nombre):
         if clave_plataforma == "mercado_libre":
@@ -430,7 +379,6 @@ if "RACOVE" in str(modulo_activo):
                 etiqueta_badge = "🟢 Más Económica" if idx == 0 else f"Opción {idx+1}"
                 plan_html = f"<div class='card-cashea-plan'>🟣 {item.get('plan_cashea')}</div>" if item.get("plan_cashea") else ""
                 
-                # Tarjeta limpia SIN imagen forzada
                 card_html = f"""<div class="card-item-clean">
 <span class="card-badge-econ">{etiqueta_badge}</span>
 <div class="card-price">{item.get('precio_usd', 'Consultar')}</div>
@@ -444,7 +392,6 @@ if "RACOVE" in str(modulo_activo):
                 url_btn = generar_link_ve(clave_plataforma, item.get("comercio", ""), item.get("link"), prod_nombre)
                 st.link_button("🔗 Ver Publicación / Referencia", url_btn, use_container_width=True)
 
-    # Estado inicial cuando no se ha ejecutado el análisis
     if not st.session_state.get("ve_analisis_completado"):
         st.info("👈 **Para comenzar:** Selecciona en la barra lateral el archivo Excel y haz clic en **🚀 Iniciar Análisis**.")
 
@@ -458,13 +405,12 @@ if "RACOVE" in str(modulo_activo):
                 st.error("❌ Falta GEMINI_API_KEY en Secrets.")
                 st.stop()
             cliente = genai.Client(api_key=api_key)
-            modelos_disponibles = detectar_modelos_activos(cliente)
             resultados_temp_ve = []
             barra_ve = st.progress(0)
             
             for i, prod in enumerate(lista_p):
                 with st.spinner(f"RACOVE analizando: **{prod}**..."):
-                    datos, modelo_usado, error = consultar_ve(cliente, prod, modelos_disponibles)
+                    datos, modelo_usado, error = consultar_ve(cliente, prod)
                     menor_cashea = 999999.0
                     if datos and datos.get("cashea"):
                         pc = [extraer_precio_num(x.get("precio_usd")) for x in datos.get("cashea")]
@@ -486,7 +432,6 @@ if "RACOVE" in str(modulo_activo):
                         "menor_ml": menor_ml
                     })
                 barra_ve.progress((i + 1) / len(lista_p))
-                time.sleep(2)
                 
             st.session_state["ve_lista_resultados"] = resultados_temp_ve
             st.session_state["ve_dict_imgs"] = dict_i
@@ -510,7 +455,6 @@ if "RACOVE" in str(modulo_activo):
                 
                 with st.container(border=True):
                     st.subheader(f"📦 {prod}")
-                    # Tamaño neutro y nítido para la imagen principal de referencia
                     c_f, c_c = st.columns([1.1, 3.5])
                     with c_f:
                         st.markdown("**📸 Foto de Referencia:**")
@@ -550,12 +494,14 @@ if "RACOVE" in str(modulo_activo):
                     col_t, col_input = st.columns([2.5, 1.2])
                     with col_t:
                         st.subheader(f"🏷️ {prod}")
-                        st.caption(f"Competencia ➔ Cashea mín: **${menor_c if menor_c < 999900 else 'N/D'} USD** | ML mín: **${menor_m if menor_m < 999900 else 'N/D'} USD**")
+                        txt_cashea_min = f"${menor_c:.2f} USD" if menor_c < 999900 else "N/D"
+                        txt_ml_min = f"${menor_m:.2f} USD" if menor_m < 999900 else "N/D"
+                        st.caption(f"Competencia ➔ Cashea mín: **{txt_cashea_min}** | ML mín: **{txt_ml_min}**")
                     with col_input:
                         costo = st.number_input(
                             "💵 Tu Costo Puesto en VE (USD):", 
                             min_value=0.50, 
-                            max_value=2000.00, 
+                            max_value=15000.00, 
                             value=costo_inicial, 
                             step=0.50, 
                             key=f"costo_ve_{idx_p}"
@@ -564,7 +510,6 @@ if "RACOVE" in str(modulo_activo):
                     matriz = calcular_matriz_precios(costo, menor_c, menor_m)
                     st.write("")
                     
-                    # 5 Columnas de precios SIN porcentajes confidenciales
                     p1, p2, p3, p4, p5 = st.columns(5)
                     with p1:
                         with st.container(border=True):
@@ -587,7 +532,6 @@ if "RACOVE" in str(modulo_activo):
                             st.markdown("**🟡 Precio Mercado Libre**")
                             st.markdown(f"### ${matriz['precio_sug_ml']:.2f}")
 
-                    # Alertas de Cashea y ML
                     if matriz["alerta_cashea"]:
                         if matriz["alerta_cashea"]["tipo"] == "error":
                             st.error(matriz["alerta_cashea"]["mensaje"])
@@ -603,7 +547,7 @@ if "RACOVE" in str(modulo_activo):
                             st.success(matriz["alerta_ml"]["mensaje"])
 
 # =============================================================================
-# MÓDULO 2: SOURCING CHINA (1688, ALIBABA Y ALIEXPRESS)
+# MÓDULO 2: SOURCING CHINA (1688, ALIBABA Y ALIEXPRESS - ULTRARRÁPIDO)
 # =============================================================================
 else:
     st.title("🇨🇳 Sourcing China")
@@ -631,153 +575,157 @@ else:
     def procesar_archivo_china():
         lista_china = []
         dict_imgs_china = {}
+        
         if archivo_subido_china is not None:
             nombre = archivo_subido_china.name.lower()
             if nombre.endswith(".xlsx"):
                 wb = openpyxl.load_workbook(io.BytesIO(archivo_subido_china.getvalue()))
                 ws = wb.active
+                
+                # Mapear imágenes por fila
                 imgs_por_fila = {}
-                for img in getattr(ws, "_images", []):
-                    if hasattr(img.anchor, "_from"):
+                for img in getattr(ws, '_images', []):
+                    if hasattr(img.anchor, '_from'):
                         r = img.anchor._from.row + 1
                         imgs_por_fila[r] = img._data()
-                for row in range(2, ws.max_row + 1):
-                    val_p = ws.cell(row, 1).value
-                    val_costo = ws.cell(row, 2).value
-                    val_moq = ws.cell(row, 3).value
-                    if val_p and str(val_p).strip() and not str(val_p).startswith("#"):
-                        p_nom = str(val_p).strip()
-                        c_prov = extraer_precio_num(val_costo)
-                        if c_prov >= 999900: c_prov = 3.00
-                        moq_txt = str(val_moq).strip() if val_moq else "100"
+                        
+                # Detección inteligente de columnas
+                col_prod = None
+                col_precio = None
+                col_moq = None
+                header_row = 1
+                
+                for r in range(1, min(5, ws.max_row + 1)):
+                    row_vals = [str(ws.cell(r, c).value or "").strip().upper() for c in range(1, ws.max_column + 1)]
+                    for c_idx, val in enumerate(row_vals, 1):
+                        if any(k in val for k in ["PRODUCTO", "DESCRIPCION", "DESCRIPCIÓN", "ITEM", "NOMBRE"]) and col_prod is None:
+                            col_prod = c_idx
+                            header_row = r
+                        elif any(k in val for k in ["PRECIO", "COSTO", "USD", "VALOR"]) and col_precio is None:
+                            col_precio = c_idx
+                            header_row = r
+                        elif any(k in val for k in ["MOQ", "CANTIDAD", "QTY", "UNID"]) and col_moq is None:
+                            col_moq = c_idx
+                            header_row = r
+                            
+                if col_prod is None: col_prod = 3 if ws.max_column >= 3 else 1
+                if col_precio is None: col_precio = 5 if ws.max_column >= 5 else (4 if ws.max_column >= 4 else 2)
+                
+                for r in range(header_row + 1, ws.max_row + 1):
+                    raw_p = ws.cell(r, col_prod).value
+                    raw_precio = ws.cell(r, col_precio).value
+                    raw_moq = ws.cell(r, col_moq).value if col_moq else "1"
+                    
+                    if raw_p and str(raw_p).strip() and not str(raw_p).startswith("#"):
+                        p_nom = str(raw_p).strip()
+                        
+                        if p_nom in ["6英寸", "8英寸", "10英寸", "12英寸", "14英寸", "16英寸"]:
+                            inch_map = {
+                                "6英寸": "Trampolín Cama Elástica 6 Pies (1.83m) con Red de Seguridad",
+                                "8英寸": "Trampolín Cama Elástica 8 Pies (2.44m) con Red de Seguridad",
+                                "10英寸": "Trampolín Cama Elástica 10 Pies (3.05m) con Red de Seguridad",
+                                "12英寸": "Trampolín Cama Elástica 12 Pies (3.66m) con Red de Seguridad",
+                                "14英寸": "Trampolín Cama Elástica 14 Pies (4.28m) con Red de Seguridad",
+                                "16英寸": "Trampolín Cama Elástica 16 Pies (4.88m) con Red de Seguridad",
+                            }
+                            p_nom = inch_map[p_nom]
+                            
+                        c_prov = extraer_precio_num(raw_precio)
+                        if c_prov >= 999900: c_prov = 10.0
+                        moq_txt = str(raw_moq).strip() if raw_moq else "1"
+                        
                         lista_china.append({"producto": p_nom, "precio_prov": c_prov, "moq": moq_txt})
-                        if row in imgs_por_fila:
-                            dict_imgs_china[p_nom] = imgs_por_fila[row]
+                        if r in imgs_por_fila:
+                            dict_imgs_china[p_nom] = imgs_por_fila[r]
             else:
                 for linea in archivo_subido_china.getvalue().decode("utf-8", errors="ignore").splitlines()[1:]:
                     partes = [p.strip() for p in linea.split(",") if p.strip()]
                     if partes:
                         p_nom = partes[0]
-                        c_prov = extraer_precio_num(partes[1]) if len(partes) > 1 else 3.00
-                        moq_txt = partes[2] if len(partes) > 2 else "100"
+                        c_prov = extraer_precio_num(partes[1]) if len(partes) > 1 else 10.0
+                        moq_txt = partes[2] if len(partes) > 2 else "1"
                         lista_china.append({"producto": p_nom, "precio_prov": c_prov, "moq": moq_txt})
-        else:
-            lista_china = [
-                {"producto": "Neceser Viajero Maquillaje Rígido", "precio_prov": 3.20, "moq": "100"},
-                {"producto": "Forro Tablet Giratorio 360", "precio_prov": 2.10, "moq": "200"}
-            ]
+                        
         return lista_china[:limite_prods_china], dict_imgs_china
 
-    def consultar_auditoria_china(cliente, producto, precio_prov, moq, tasa_cambio, modelos_disponibles):
+    def consultar_auditoria_china_rapida(cliente, producto, precio_prov, moq, tasa_cambio):
         prompt = f"""
-        Actúa como un agente de compras y abastecimiento internacional en China (Yiwu, Shenzhen, Guangzhou).
-        Audita rigurosamente esta cotización de un proveedor chino:
+        Auditor de compras en China. Analiza:
         - Producto: "{producto}"
-        - Precio cotizado por el proveedor: ${precio_prov:.2f} USD
-        - Cantidad / Lote (MOQ): {moq} piezas
-        - Tasa de cambio RMB/USD considerada: {tasa_cambio}
+        - Cotizado por proveedor: ${precio_prov:.2f} USD (MOQ: {moq})
+        - Tasa RMB/USD: {tasa_cambio}
         
-        DEBES RELEVAR INFORMACIÓN REAL DE 3 PLATAFORMAS EN CHINA:
-        1. 1688.com (Fábrica interna china en Yuanes ¥ y convertida a USD):
-           - Costo directo de taller para volumen local.
-        2. Alibaba.com (B2B mayorista exportador en USD):
-           - Rango habitual de trading company / fábrica de exportación.
-        3. AliExpress (Minorista al detal en USD):
-           - Precio de venta individual unitario con flete al detal.
-           
-        4. AUDITORÍA Y ESTRATEGIA DE CONTRAOFERTA:
-           - clasificacion: "EXCELENTE" (precio de fábrica directa honesto), "REGULAR" (trader intermediario con margen negociable), o "SOBREPRECIO" (precio inflado cercano a retail).
-           - icono_semaforo: "🟢" / "🟡" / "🔴"
-           - contraoferta_usd: Rango sugerido en USD para renegociar con el proveedor.
-           - argumento_negociacion: En qué punto técnico presionar al proveedor para bajar el precio.
-
-        Responde ÚNICAMENTE con este JSON:
+        Devuelve JSON estricto con precios de mercado:
+        1. 1688 (fábrica local en ¥ y $): rango_rmb, rango_usd
+        2. Alibaba (exportador B2B): rango_usd, moq_habitual
+        3. AliExpress (detal): precio_unitario_usd
+        4. Auditoria: clasificacion (EXCELENTE/REGULAR/SOBREPRECIO), icono_semaforo (🟢/🟡/🔴), evaluacion_resumen, contraoferta_usd, ahorro_estimado_lote, argumento_negociacion
+        
+        JSON:
         {{
             "producto": "{producto}",
-            "precio_prov_usd": {precio_prov},
-            "moq": "{moq}",
-            "plataforma_1688": {{
-                "rango_rmb": "¥XX.XX - ¥XX.XX",
-                "rango_usd": "$XX.XX - $XX.XX",
-                "precio_min_usd": 0.00,
-                "origen_fabrica": "Zhejiang / Guangdong / Yiwu",
-                "detalles": "Costo directo de taller sin sobrecosto de exportación"
-            }},
-            "plataforma_alibaba": {{
-                "rango_usd": "$XX.XX - $XX.XX",
-                "precio_promedio_usd": 0.00,
-                "moq_habitual": "XX piezas",
-                "detalles": "Rango B2B habitual para compradores internacionales"
-            }},
-            "plataforma_aliexpress": {{
-                "precio_unitario_usd": "$XX.XX",
-                "detalles": "Precio techo minorista unitario"
-            }},
+            "plataforma_1688": {{ "rango_rmb": "¥XX - ¥XX", "rango_usd": "$XX.XX - $XX.XX" }},
+            "plataforma_alibaba": {{ "rango_usd": "$XX.XX - $XX.XX", "moq_habitual": "{moq} unid" }},
+            "plataforma_aliexpress": {{ "precio_unitario_usd": "$XX.XX" }},
             "auditoria": {{
-                "clasificacion": "EXCELENTE / REGULAR / SOBREPRECIO",
-                "icono_semaforo": "🟢 / 🟡 / 🔴",
-                "evaluacion_resumen": "Resumen claro de 2 líneas sobre la cotización del proveedor.",
+                "clasificacion": "REGULAR",
+                "icono_semaforo": "🟡",
+                "evaluacion_resumen": "Resumen conciso del precio cotizado.",
                 "contraoferta_usd": "$XX.XX - $XX.XX",
                 "ahorro_estimado_lote": "$XX.XX",
-                "argumento_negociacion": "Argumento clave para bajar el precio."
+                "argumento_negociacion": "Argumento técnico directo."
             }}
         }}
         """
-        ultimo_error = ""
-        for modelo in modelos_disponibles:
-            for _ in range(2):
-                try:
-                    resp = cliente.models.generate_content(model=modelo, contents=prompt)
-                    match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
-                    if match:
-                        return json.loads(match.group(1)), modelo, None
-                except Exception as e:
-                    ultimo_error = str(e)
-                    if any(k in str(e) for k in ["503", "429", "RESOURCE_EXHAUSTED", "UNAVAILABLE"]):
-                        time.sleep(3)
-                        continue
-                    break
-        return None, None, f"Error: {ultimo_error}"
+        for modelo in MODELOS_RAPIDOS:
+            try:
+                resp = cliente.models.generate_content(model=modelo, contents=prompt)
+                match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
+                if match:
+                    return json.loads(match.group(1)), modelo, None
+            except Exception:
+                continue
+        return None, None, "No se pudo conectar con la API"
 
     if not st.session_state.get("china_analisis_completado"):
         st.info("👈 **Para comenzar:** Sube en la barra lateral tu archivo de cotizaciones de China y haz clic en **🇨🇳 Iniciar Auditoría China**.")
 
     if boton_iniciar_china:
         lista_c, dict_imgs_c = procesar_archivo_china()
-        api_key = st.secrets.get("GEMINI_API_KEY")
-        if not api_key:
-            st.error("❌ Falta GEMINI_API_KEY en Secrets.")
-            st.stop()
-        cliente = genai.Client(api_key=api_key)
-        modelos_disponibles = detectar_modelos_activos(cliente)
-        
-        resultados_temp_china = []
-        barra_china = st.progress(0)
-        
-        for i, item_c in enumerate(lista_c):
-            prod = item_c["producto"]
-            costo_p = item_c["precio_prov"]
-            moq_val = item_c["moq"]
+        if not lista_c:
+            st.warning("⚠️ No se encontraron productos en el archivo para auditar.")
+        else:
+            api_key = st.secrets.get("GEMINI_API_KEY")
+            if not api_key:
+                st.error("❌ Falta GEMINI_API_KEY en Secrets.")
+                st.stop()
+            cliente = genai.Client(api_key=api_key)
+            resultados_temp_china = []
+            barra_china = st.progress(0)
             
-            with st.spinner(f"Auditando en fábricas chinas: **{prod}**..."):
-                datos_c, modelo_usado, error_c = consultar_auditoria_china(
-                    cliente, prod, costo_p, moq_val, tasa_rmb, modelos_disponibles
-                )
-                resultados_temp_china.append({
-                    "producto": prod,
-                    "precio_prov": costo_p,
-                    "moq": moq_val,
-                    "datos": datos_c,
-                    "modelo": modelo_usado,
-                    "error": error_c
-                })
-            barra_china.progress((i + 1) / len(lista_c))
-            time.sleep(2)
-            
-        st.session_state["china_lista_resultados"] = resultados_temp_china
-        st.session_state["china_dict_imgs"] = dict_imgs_c
-        st.session_state["china_analisis_completado"] = True
-        st.success("🎉 ¡Auditoría de compras en China finalizada!")
+            for i, item_c in enumerate(lista_c):
+                prod = item_c["producto"]
+                costo_p = item_c["precio_prov"]
+                moq_val = item_c["moq"]
+                
+                with st.spinner(f"Auditando en fábricas chinas: **{prod}**..."):
+                    datos_c, modelo_usado, error_c = consultar_auditoria_china_rapida(
+                        cliente, prod, costo_p, moq_val, tasa_rmb
+                    )
+                    resultados_temp_china.append({
+                        "producto": prod,
+                        "precio_prov": costo_p,
+                        "moq": moq_val,
+                        "datos": datos_c,
+                        "modelo": modelo_usado,
+                        "error": error_c
+                    })
+                barra_china.progress((i + 1) / len(lista_c))
+                
+            st.session_state["china_lista_resultados"] = resultados_temp_china
+            st.session_state["china_dict_imgs"] = dict_imgs_c
+            st.session_state["china_analisis_completado"] = True
+            st.success("🎉 ¡Auditoría de compras en China finalizada!")
 
     if st.session_state["china_analisis_completado"] and st.session_state["china_lista_resultados"]:
         for item_ch in st.session_state["china_lista_resultados"]:
@@ -786,44 +734,56 @@ else:
             moq = item_ch["moq"]
             datos = item_ch["datos"]
             links = generar_links_china(prod)
+            dict_imgs_c = st.session_state.get("china_dict_imgs", {})
             
             with st.container(border=True):
                 st.subheader(f"📦 {prod}")
-                col_prov, col_1688, col_ali, col_aliexp = st.columns(4)
                 
-                with col_prov:
-                    with st.container(border=True):
-                        st.markdown("**🤝 TU PROVEEDOR**")
-                        st.caption(f"Lote cotizado: {moq} unid.")
-                        st.markdown(f"## 💵 ${p_prov:.2f} USD")
-                        st.caption("Precio bajo auditoría")
+                c_img_ch, c_cards_ch = st.columns([1.1, 4])
+                
+                with c_img_ch:
+                    st.markdown("**📸 Foto Proveedor:**")
+                    if prod in dict_imgs_c:
+                        st.image(dict_imgs_c[prod], width=180)
+                    else:
+                        st.info("Sin foto")
+                        
+                with c_cards_ch:
+                    col_prov, col_1688, col_ali, col_aliexp = st.columns(4)
+                    
+                    with col_prov:
+                        with st.container(border=True):
+                            st.markdown("**🤝 TU PROVEEDOR**")
+                            st.caption(f"Lote cotizado: {moq} unid.")
+                            st.markdown(f"## 💵 ${p_prov:.2f} USD")
+                            st.caption("Precio bajo auditoría")
 
-                p_1688 = datos.get("plataforma_1688", {}) if datos else {}
-                with col_1688:
-                    with st.container(border=True):
-                        st.markdown("<span class='badge-plataforma badge-1688'>🏭 1688.com</span>", unsafe_allow_html=True)
-                        st.caption("Fábrica local en China")
-                        st.markdown(f"## {p_1688.get('rango_usd', '$--')}")
-                        st.caption(f"Yuanes: **{p_1688.get('rango_rmb', '¥--')}**")
-                        st.link_button("🔗 Ver en 1688", links["1688"], use_container_width=True)
+                    p_1688 = datos.get("plataforma_1688", {}) if datos else {}
+                    with col_1688:
+                        with st.container(border=True):
+                            st.markdown("<span class='badge-plataforma badge-1688'>🏭 1688.com</span>", unsafe_allow_html=True)
+                            st.caption("Fábrica local en China")
+                            st.markdown(f"## {p_1688.get('rango_usd', '$--')}")
+                            st.caption(f"Yuanes: **{p_1688.get('rango_rmb', '¥--')}**")
+                            st.link_button("🔗 Ver en 1688", links["1688"], use_container_width=True)
 
-                p_alibaba = datos.get("plataforma_alibaba", {}) if datos else {}
-                with col_ali:
-                    with st.container(border=True):
-                        st.markdown("<span class='badge-plataforma badge-alibaba'>🌐 Alibaba.com</span>", unsafe_allow_html=True)
-                        st.caption(f"MOQ ref: {p_alibaba.get('moq_habitual', moq)}")
-                        st.markdown(f"## {p_alibaba.get('rango_usd', '$--')}")
-                        st.caption("Exportador B2B")
-                        st.link_button("🔗 Ver en Alibaba", links["alibaba"], use_container_width=True)
+                    p_alibaba = datos.get("plataforma_alibaba", {}) if datos else {}
+                    with col_ali:
+                        with st.container(border=True):
+                            st.markdown("<span class='badge-plataforma badge-alibaba'>🌐 Alibaba.com</span>", unsafe_allow_html=True)
+                            st.caption(f"MOQ ref: {p_alibaba.get('moq_habitual', moq)}")
+                            st.markdown(f"## {p_alibaba.get('rango_usd', '$--')}")
+                            st.caption("Exportador B2B")
+                            st.link_button("🔗 Ver en Alibaba", links["alibaba"], use_container_width=True)
 
-                p_aliexpress = datos.get("plataforma_aliexpress", {}) if datos else {}
-                with col_aliexp:
-                    with st.container(border=True):
-                        st.markdown("<span class='badge-plataforma badge-aliexpress'>📦 AliExpress</span>", unsafe_allow_html=True)
-                        st.caption("Precio detal unitario")
-                        st.markdown(f"## {p_aliexpress.get('precio_unitario_usd', '$--')}")
-                        st.caption("Techo de mercado")
-                        st.link_button("🔗 Ver en AliExpress", links["aliexpress"], use_container_width=True)
+                    p_aliexpress = datos.get("plataforma_aliexpress", {}) if datos else {}
+                    with col_aliexp:
+                        with st.container(border=True):
+                            st.markdown("<span class='badge-plataforma badge-aliexpress'>📦 AliExpress</span>", unsafe_allow_html=True)
+                            st.caption("Precio detal unitario")
+                            st.markdown(f"## {p_aliexpress.get('precio_unitario_usd', '$--')}")
+                            st.caption("Techo de mercado")
+                            st.link_button("🔗 Ver en AliExpress", links["aliexpress"], use_container_width=True)
 
                 st.write("")
                 audit = datos.get("auditoria", {}) if datos else {}
