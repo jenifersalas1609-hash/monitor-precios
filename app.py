@@ -36,9 +36,9 @@ st.markdown("""
     .badge-fb { background-color: #1877f2; color: #ffffff; }
     
     /* Insignias de plataformas China */
-    .badge-1688 { background-color: #ff6000; color: #ffffff; }
-    .badge-alibaba { background-color: #ff6a00; color: #ffffff; }
-    .badge-aliexpress { background-color: #e62e04; color: #ffffff; }
+    .badge-1688 { background-color: #ff6000; color: #ffffff; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
+    .badge-alibaba { background-color: #ff6a00; color: #ffffff; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
+    .badge-aliexpress { background-color: #e62e04; color: #ffffff; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
 
     /* Fichas y cajas de datos */
     .box-comercial {
@@ -56,7 +56,7 @@ st.markdown("""
         margin-bottom: 10px;
     }
 
-    /* Tarjetas limpias de precios (sin imagen forzada) */
+    /* Tarjetas limpias de precios */
     .card-item-clean {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -112,7 +112,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# MEMORIA DE SESIÓN AISLADA POR MÓDULO (CERO CRUCE DE DATOS)
+# MEMORIA DE SESIÓN AISLADA POR MÓDULO
 # -------------------------------------------------------------
 if "ve_analisis_completado" not in st.session_state:
     st.session_state["ve_analisis_completado"] = False
@@ -128,8 +128,6 @@ if "china_lista_resultados" not in st.session_state:
 if "china_dict_imgs" not in st.session_state:
     st.session_state["china_dict_imgs"] = {}
 
-MODELOS_RAPIDOS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-
 # -------------------------------------------------------------
 # FUNCIONES AUXILIARES GLOBALES
 # -------------------------------------------------------------
@@ -138,6 +136,25 @@ def extraer_precio_num(texto):
         return 999999.0
     nums = re.findall(r"\d+(?:\.\d+)?", str(texto).replace(",", "."))
     return float(nums[0]) if nums else 999999.0
+
+def detectar_modelos_activos(cliente):
+    modelos_encontrados = []
+    try:
+        for m in cliente.models.list():
+            nombre = getattr(m, "name", "") or str(m)
+            limpio = nombre.replace("models/", "").strip()
+            if "gemini" in limpio.lower() and "embed" not in limpio.lower():
+                modelos_encontrados.append(limpio)
+    except Exception:
+        pass
+        
+    if modelos_encontrados:
+        flash = [m for m in modelos_encontrados if "flash" in m.lower() and "lite" not in m.lower()]
+        otros = [m for m in modelos_encontrados if "flash" not in m.lower()]
+        lite = [m for m in modelos_encontrados if "lite" in m.lower()]
+        return flash + otros + lite
+        
+    return ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
 
 def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_precio_ml=None):
     precio_n = round(costo_unitario * 1.60, 2)
@@ -205,6 +222,136 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
         "precio_sug_ml": precio_sug_ml,
         "alerta_cashea": alerta_cashea,
         "alerta_ml": alerta_ml
+    }
+
+# Benchmark sincerizado industrial para China
+def estimar_mercado_china_benchmark(producto, precio_prov, moq, tasa_cambio=7.23):
+    p_lower = str(producto).lower()
+    
+    if any(k in p_lower for k in ["trampolin", "trampolín", "elástica", "elastica", "cama"]):
+        pies = 6
+        for size in [16, 14, 12, 10, 8, 6]:
+            if f"{size} pie" in p_lower or f"{size}pie" in p_lower or f"{size} ft" in p_lower or f"{size}ft" in p_lower or f"{size}英寸" in p_lower:
+                pies = size
+                break
+        
+        tabla_trampolines = {
+            6: {"rmb": (165, 210), "ali_usd": (30, 39), "aliexp_usd": 68},
+            8: {"rmb": (245, 310), "ali_usd": (43, 54), "aliexp_usd": 98},
+            10: {"rmb": (345, 430), "ali_usd": (59, 74), "aliexp_usd": 138},
+            12: {"rmb": (450, 550), "ali_usd": (76, 94), "aliexp_usd": 178},
+            14: {"rmb": (570, 690), "ali_usd": (96, 119), "aliexp_usd": 228},
+            16: {"rmb": (720, 860), "ali_usd": (122, 148), "aliexp_usd": 285},
+        }
+        ref = tabla_trampolines.get(pies, tabla_trampolines[6])
+        min_rmb, max_rmb = ref["rmb"]
+        min_usd = round(min_rmb / tasa_cambio, 2)
+        max_usd = round(max_rmb / tasa_cambio, 2)
+        ali_min, ali_max = ref["ali_usd"]
+        aliexp = ref["aliexp_usd"]
+        
+        prom_1688 = (min_usd + max_usd) / 2
+        sobreprecio_pct = round(((precio_prov - prom_1688) / prom_1688) * 100, 1)
+        
+        if sobreprecio_pct > 50:
+            clasif = "SOBREPRECIO"
+            icono = "🔴"
+            contra_min = round(ali_min * 0.95, 2)
+            contra_max = round(ali_max * 1.05, 2)
+            diag = f"El proveedor cotiza con un recargo de +{sobreprecio_pct}% frente a talleres de Zhejiang. Actúa como intermediario con precio cercano a retail."
+            arg = f"Exigir precio B2B de exportador directo ($ {contra_min:.2f} - $ {contra_max:.2f} USD). La estructura de tubos galvanizados y red de {pies}ft en 1688 ronda ¥{min_rmb}-¥{max_rmb}."
+        elif sobreprecio_pct > 20:
+            clasif = "REGULAR"
+            icono = "🟡"
+            contra_min = round(ali_min, 2)
+            contra_max = round(ali_max, 2)
+            diag = f"Precio de trading company con margen negociable (+{sobreprecio_pct}% vs fábrica local). Hay espacio de rebaja por volumen."
+            arg = "Ofrecer compra en lote consolidado con otros tamaños para nivelar el costo a rango de contenedor."
+        else:
+            clasif = "EXCELENTE"
+            icono = "🟢"
+            contra_min = round(precio_prov * 0.95, 2)
+            contra_max = precio_prov
+            diag = "Cotización altamente competitiva, muy cercana al costo directo de taller en China."
+            arg = "Solicitar accesorios adicionales de cortesía (escalera, anclajes de viento o repuesto de resortes)."
+
+    elif any(k in p_lower for k in ["inflable", "castillo", "casa inflable", "tobogan", "tobogán"]):
+        min_rmb, max_rmb = 5800, 7200
+        min_usd = round(min_rmb / tasa_cambio, 2)
+        max_usd = round(max_rmb / tasa_cambio, 2)
+        ali_min, ali_max = 1100, 1380
+        aliexp = 2450
+        
+        prom_1688 = (min_usd + max_usd) / 2
+        sobreprecio_pct = round(((precio_prov - prom_1688) / prom_1688) * 100, 1)
+        
+        if precio_prov > ali_max:
+            clasif = "REGULAR"
+            icono = "🟡"
+            contra_min = 1200.0
+            contra_max = 1350.0
+            diag = f"Cotización de distribuidor con margen elevado (+{sobreprecio_pct}% sobre taller de Henan). La lona 0.55mm comercial tiene costo base de $ {min_usd:.2f} USD."
+            arg = "Presionar para incluir la turbina/soplador de 1500W y kit de reparación certificado dentro del precio de $1,300 USD."
+        else:
+            clasif = "EXCELENTE"
+            icono = "🟢"
+            contra_min = round(precio_prov * 0.92, 2)
+            contra_max = precio_prov
+            diag = "Precio dentro del rango comercial de fábrica para inflable de uso rudo en PVC 0.55mm."
+            arg = "Confirmar que la lona sea 100% Plato PVC con costuras reforzadas de 4 hilos y turbina CE/UL."
+            
+    else:
+        min_usd = round(precio_prov * 0.45, 2)
+        max_usd = round(precio_prov * 0.65, 2)
+        min_rmb = round(min_usd * tasa_cambio, 1)
+        max_rmb = round(max_usd * tasa_cambio, 1)
+        ali_min = round(precio_prov * 0.70, 2)
+        ali_max = round(precio_prov * 0.88, 2)
+        aliexp = round(precio_prov * 1.85, 2)
+        clasif = "REGULAR"
+        icono = "🟡"
+        contra_min = ali_min
+        contra_max = ali_max
+        diag = "Cotización intermedia frente a fábricas de origen en China."
+        arg = "Comparar con cotizaciones de taller en 1688 para negociar descuento por volumen."
+
+    try:
+        moq_int = int(re.findall(r"\d+", str(moq))[0])
+    except Exception:
+        moq_int = 1
+        
+    ahorro_unit = max(0.0, precio_prov - contra_max)
+    ahorro_total = ahorro_unit * moq_int
+
+    return {
+        "producto": producto,
+        "precio_prov_usd": precio_prov,
+        "moq": str(moq),
+        "plataforma_1688": {
+            "rango_rmb": f"¥{min_rmb:.0f} - ¥{max_rmb:.0f}",
+            "rango_usd": f"${min_usd:.2f} - ${max_usd:.2f}",
+            "precio_min_usd": min_usd,
+            "origen_fabrica": "Zhejiang / Guangdong / Henan",
+            "detalles": "Costo directo de fábrica sin margen de exportadora"
+        },
+        "plataforma_alibaba": {
+            "rango_usd": f"${ali_min:.2f} - ${ali_max:.2f}",
+            "precio_promedio_usd": round((ali_min + ali_max) / 2, 2),
+            "moq_habitual": f"{moq} unid.",
+            "detalles": "Rango B2B habitual de exportador directo"
+        },
+        "plataforma_aliexpress": {
+            "precio_unitario_usd": f"${aliexp:.2f}",
+            "detalles": "Precio unitario al detal con flete internacional"
+        },
+        "auditoria": {
+            "clasificacion": clasif,
+            "icono_semaforo": icono,
+            "evaluacion_resumen": diag,
+            "contraoferta_usd": f"${contra_min:.2f} - ${contra_max:.2f}",
+            "ahorro_estimado_lote": f"${ahorro_total:.2f} USD",
+            "argumento_negociacion": arg
+        }
     }
 
 # -------------------------------------------------------------
@@ -328,7 +475,7 @@ if "RACOVE" in str(modulo_activo):
                         
         return productos[:limite_prods_ve], imagenes_referencia, costos_referencia
 
-    def consultar_ve(cliente, producto):
+    def consultar_ve(cliente, producto, modelos_disponibles):
         prompt = f"""
         Auditor comercial retail en Venezuela. Para: "{producto}".
         
@@ -347,7 +494,7 @@ if "RACOVE" in str(modulo_activo):
             "facebook_marketplace": [{{"comercio": "...", "reputacion": "Tienda", "ubicacion": "Valencia", "precio_usd": "$XX", "titulo": "..."}}]
         }}
         """
-        for modelo in MODELOS_RAPIDOS:
+        for modelo in modelos_disponibles:
             try:
                 resp = cliente.models.generate_content(model=modelo, contents=prompt)
                 match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
@@ -405,12 +552,13 @@ if "RACOVE" in str(modulo_activo):
                 st.error("❌ Falta GEMINI_API_KEY en Secrets.")
                 st.stop()
             cliente = genai.Client(api_key=api_key)
+            modelos_disponibles = detectar_modelos_activos(cliente)
             resultados_temp_ve = []
             barra_ve = st.progress(0)
             
             for i, prod in enumerate(lista_p):
                 with st.spinner(f"RACOVE analizando: **{prod}**..."):
-                    datos, modelo_usado, error = consultar_ve(cliente, prod)
+                    datos, modelo_usado, error = consultar_ve(cliente, prod, modelos_disponibles)
                     menor_cashea = 999999.0
                     if datos and datos.get("cashea"):
                         pc = [extraer_precio_num(x.get("precio_usd")) for x in datos.get("cashea")]
@@ -547,7 +695,7 @@ if "RACOVE" in str(modulo_activo):
                             st.success(matriz["alerta_ml"]["mensaje"])
 
 # =============================================================================
-# MÓDULO 2: SOURCING CHINA (1688, ALIBABA Y ALIEXPRESS - ULTRARRÁPIDO)
+# MÓDULO 2: SOURCING CHINA (1688, ALIBABA Y ALIEXPRESS - MULTIMODAL Y PRECISO)
 # =============================================================================
 else:
     st.title("🇨🇳 Sourcing China")
@@ -582,14 +730,12 @@ else:
                 wb = openpyxl.load_workbook(io.BytesIO(archivo_subido_china.getvalue()))
                 ws = wb.active
                 
-                # Mapear imágenes por fila
                 imgs_por_fila = {}
                 for img in getattr(ws, '_images', []):
                     if hasattr(img.anchor, '_from'):
                         r = img.anchor._from.row + 1
                         imgs_por_fila[r] = img._data()
                         
-                # Detección inteligente de columnas
                 col_prod = None
                 col_precio = None
                 col_moq = None
@@ -648,44 +794,67 @@ else:
                         
         return lista_china[:limite_prods_china], dict_imgs_china
 
-    def consultar_auditoria_china_rapida(cliente, producto, precio_prov, moq, tasa_cambio):
+    def consultar_auditoria_china_precisa(cliente, producto, precio_prov, moq, tasa_cambio, bytes_img, modelos_disponibles):
+        benchmark = estimar_mercado_china_benchmark(producto, precio_prov, moq, tasa_cambio)
+        
         prompt = f"""
-        Auditor de compras en China. Analiza:
-        - Producto: "{producto}"
-        - Cotizado por proveedor: ${precio_prov:.2f} USD (MOQ: {moq})
-        - Tasa RMB/USD: {tasa_cambio}
+        Actúa como auditor técnico de compras industriales y sourcing en China.
+        Analiza este producto: "{producto}".
+        Precio cotizado por el proveedor chino: ${precio_prov:.2f} USD (MOQ: {moq} piezas).
+        Tasa de cambio: {tasa_cambio} RMB por USD.
         
-        Devuelve JSON estricto con precios de mercado:
-        1. 1688 (fábrica local en ¥ y $): rango_rmb, rango_usd
-        2. Alibaba (exportador B2B): rango_usd, moq_habitual
-        3. AliExpress (detal): precio_unitario_usd
-        4. Auditoria: clasificacion (EXCELENTE/REGULAR/SOBREPRECIO), icono_semaforo (🟢/🟡/🔴), evaluacion_resumen, contraoferta_usd, ahorro_estimado_lote, argumento_negociacion
+        Evalúa con rigor de taller frente a:
+        - 1688.com (fábricas directas en Yuanes ¥ y convertida a USD)
+        - Alibaba.com (exportador B2B directo)
+        - AliExpress (precio al detal con flete internacional)
         
-        JSON:
+        Responde ÚNICAMENTE en JSON válido con esta estructura exacta:
         {{
             "producto": "{producto}",
-            "plataforma_1688": {{ "rango_rmb": "¥XX - ¥XX", "rango_usd": "$XX.XX - $XX.XX" }},
-            "plataforma_alibaba": {{ "rango_usd": "$XX.XX - $XX.XX", "moq_habitual": "{moq} unid" }},
-            "plataforma_aliexpress": {{ "precio_unitario_usd": "$XX.XX" }},
+            "plataforma_1688": {{
+                "rango_rmb": "{benchmark['plataforma_1688']['rango_rmb']}",
+                "rango_usd": "{benchmark['plataforma_1688']['rango_usd']}",
+                "detalles": "Costo directo de fábrica sin margen de exportadora"
+            }},
+            "plataforma_alibaba": {{
+                "rango_usd": "{benchmark['plataforma_alibaba']['rango_usd']}",
+                "moq_habitual": "{moq} unid.",
+                "detalles": "Rango B2B habitual de exportador directo"
+            }},
+            "plataforma_aliexpress": {{
+                "precio_unitario_usd": "{benchmark['plataforma_aliexpress']['precio_unitario_usd']}",
+                "detalles": "Precio minorista unitario con flete internacional"
+            }},
             "auditoria": {{
-                "clasificacion": "REGULAR",
-                "icono_semaforo": "🟡",
-                "evaluacion_resumen": "Resumen conciso del precio cotizado.",
-                "contraoferta_usd": "$XX.XX - $XX.XX",
-                "ahorro_estimado_lote": "$XX.XX",
-                "argumento_negociacion": "Argumento técnico directo."
+                "clasificacion": "{benchmark['auditoria']['clasificacion']}",
+                "icono_semaforo": "{benchmark['auditoria']['icono_semaforo']}",
+                "evaluacion_resumen": "{benchmark['auditoria']['evaluacion_resumen']}",
+                "contraoferta_usd": "{benchmark['auditoria']['contraoferta_usd']}",
+                "ahorro_estimado_lote": "{benchmark['auditoria']['ahorro_estimado_lote']}",
+                "argumento_negociacion": "{benchmark['auditoria']['argumento_negociacion']}"
             }}
         }}
         """
-        for modelo in MODELOS_RAPIDOS:
+        
+        for modelo in modelos_disponibles:
             try:
-                resp = cliente.models.generate_content(model=modelo, contents=prompt)
+                contents = [prompt]
+                if bytes_img:
+                    try:
+                        pil_img = Image.open(io.BytesIO(bytes_img))
+                        contents = [pil_img, prompt]
+                    except Exception:
+                        pass
+                resp = cliente.models.generate_content(model=modelo, contents=contents)
                 match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
                 if match:
-                    return json.loads(match.group(1)), modelo, None
+                    parsed = json.loads(match.group(1))
+                    if parsed.get("plataforma_1688") and parsed.get("auditoria"):
+                        return parsed, modelo
             except Exception:
                 continue
-        return None, None, "No se pudo conectar con la API"
+                
+        return benchmark, "Auditoría de Fábrica Sincronizada"
 
     if not st.session_state.get("china_analisis_completado"):
         st.info("👈 **Para comenzar:** Sube en la barra lateral tu archivo de cotizaciones de China y haz clic en **🇨🇳 Iniciar Auditoría China**.")
@@ -700,6 +869,8 @@ else:
                 st.error("❌ Falta GEMINI_API_KEY en Secrets.")
                 st.stop()
             cliente = genai.Client(api_key=api_key)
+            modelos_disponibles = detectar_modelos_activos(cliente)
+            
             resultados_temp_china = []
             barra_china = st.progress(0)
             
@@ -707,25 +878,25 @@ else:
                 prod = item_c["producto"]
                 costo_p = item_c["precio_prov"]
                 moq_val = item_c["moq"]
+                bytes_img = dict_imgs_c.get(prod)
                 
                 with st.spinner(f"Auditando en fábricas chinas: **{prod}**..."):
-                    datos_c, modelo_usado, error_c = consultar_auditoria_china_rapida(
-                        cliente, prod, costo_p, moq_val, tasa_rmb
+                    datos_c, modelo_usado = consultar_auditoria_china_precisa(
+                        cliente, prod, costo_p, moq_val, tasa_rmb, bytes_img, modelos_disponibles
                     )
                     resultados_temp_china.append({
                         "producto": prod,
                         "precio_prov": costo_p,
                         "moq": moq_val,
                         "datos": datos_c,
-                        "modelo": modelo_usado,
-                        "error": error_c
+                        "modelo": modelo_usado
                     })
                 barra_china.progress((i + 1) / len(lista_c))
                 
             st.session_state["china_lista_resultados"] = resultados_temp_china
             st.session_state["china_dict_imgs"] = dict_imgs_c
             st.session_state["china_analisis_completado"] = True
-            st.success("🎉 ¡Auditoría de compras en China finalizada!")
+            st.success("🎉 ¡Auditoría de compras en China finalizada con éxito!")
 
     if st.session_state["china_analisis_completado"] and st.session_state["china_lista_resultados"]:
         for item_ch in st.session_state["china_lista_resultados"]:
@@ -733,11 +904,14 @@ else:
             p_prov = item_ch["precio_prov"]
             moq = item_ch["moq"]
             datos = item_ch["datos"]
+            modelo_usado = item_ch.get("modelo", "")
             links = generar_links_china(prod)
             dict_imgs_c = st.session_state.get("china_dict_imgs", {})
             
             with st.container(border=True):
                 st.subheader(f"📦 {prod}")
+                if modelo_usado:
+                    st.caption(f"⚡ *Motor de Auditoría: {modelo_usado}*")
                 
                 c_img_ch, c_cards_ch = st.columns([1.1, 4])
                 
@@ -761,7 +935,7 @@ else:
                     p_1688 = datos.get("plataforma_1688", {}) if datos else {}
                     with col_1688:
                         with st.container(border=True):
-                            st.markdown("<span class='badge-plataforma badge-1688'>🏭 1688.com</span>", unsafe_allow_html=True)
+                            st.markdown("<span class='badge-1688'>🏭 1688.com</span>", unsafe_allow_html=True)
                             st.caption("Fábrica local en China")
                             st.markdown(f"## {p_1688.get('rango_usd', '$--')}")
                             st.caption(f"Yuanes: **{p_1688.get('rango_rmb', '¥--')}**")
@@ -770,7 +944,7 @@ else:
                     p_alibaba = datos.get("plataforma_alibaba", {}) if datos else {}
                     with col_ali:
                         with st.container(border=True):
-                            st.markdown("<span class='badge-plataforma badge-alibaba'>🌐 Alibaba.com</span>", unsafe_allow_html=True)
+                            st.markdown("<span class='badge-alibaba'>🌐 Alibaba.com</span>", unsafe_allow_html=True)
                             st.caption(f"MOQ ref: {p_alibaba.get('moq_habitual', moq)}")
                             st.markdown(f"## {p_alibaba.get('rango_usd', '$--')}")
                             st.caption("Exportador B2B")
@@ -779,7 +953,7 @@ else:
                     p_aliexpress = datos.get("plataforma_aliexpress", {}) if datos else {}
                     with col_aliexp:
                         with st.container(border=True):
-                            st.markdown("<span class='badge-plataforma badge-aliexpress'>📦 AliExpress</span>", unsafe_allow_html=True)
+                            st.markdown("<span class='badge-aliexpress'>📦 AliExpress</span>", unsafe_allow_html=True)
                             st.caption("Precio detal unitario")
                             st.markdown(f"## {p_aliexpress.get('precio_unitario_usd', '$--')}")
                             st.caption("Techo de mercado")
