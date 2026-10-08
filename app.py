@@ -17,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilos CSS unificados y limpios (Formato Oficial de Tarjetas)
+# Estilos CSS unificados y optimizados
 st.markdown("""
 <style>
     /* Insignias de plataformas Venezuela */
@@ -56,7 +56,7 @@ st.markdown("""
         margin-bottom: 10px;
     }
 
-    /* Tarjetas limpias de precios (Formato Oficial RACOVE) */
+    /* Tarjetas de precios oficiales RACOVE */
     .card-item-clean {
         background-color: #ffffff;
         border: 1px solid #e2e8f0;
@@ -170,7 +170,7 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
                 "mensaje": (
                     f"⚠️ **Fuera de mercado en Cashea**: La competencia vende a **${menor_precio_cashea:.2f} USD**, "
                     f"por debajo de tu precio requerido de Cashea (**${precio_cashea_base:.2f} USD**). "
-                    f"Se sugiere mantener **${precio_cashea_base:.2f} USD** para proteger el margen en cuotas."
+                    f"Se sugiere mantener **${precio_cashea_base:.2f} USD** para no comprometer tu margen en cuotas."
                 )
             }
             precio_sug_cashea = precio_cashea_base
@@ -180,7 +180,7 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
                 "tipo": "success",
                 "mensaje": (
                     f"🟢 **En competencia en Cashea**: La competencia vende a **${menor_precio_cashea:.2f} USD**. "
-                    f"Tu precio sugerido de **${precio_sug_cashea:.2f} USD** es competitivo y protege el margen."
+                    f"Tu precio sugerido de **${precio_sug_cashea:.2f} USD** es competitivo y protege tu margen."
                 )
             }
     else:
@@ -225,34 +225,34 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
     }
 
 # -------------------------------------------------------------
-# BASE DE DATOS Y GENERADOR SINCERIZADO DE LOCALES Y PRECIOS VE
+# MOTOR DE DATOS SINCERIZADOS: MERCADO NACIONAL VENEZUELA
 # -------------------------------------------------------------
 def generar_datos_ve_sincerizados(producto, costo_excel=5.0):
     p_low = str(producto).lower()
     
-    # 1. Cuidado Personal, Peluquería y Belleza
-    if any(k in p_low for k in ["rizador", "plancha", "ondulador", "cabello", "secador", "cepillo"]):
-        para_que = "Herramienta térmica para estilizado y moldeado capilar, diseñada para crear ondas y rizos definidos de forma rápida sin maltratar las puntas."
-        utilidad = "Artículo de alta rotación en peluquerías, salones de belleza y cuidado personal en Venezuela, con gran salida en temporadas de eventos y fechas festivas."
-        nicho = "Mujeres de 16 a 45 años, estilistas profesionales y revendedoras de cosméticos."
-        rotacion = "Rotación alta con margen promedio entre 50% y 80% sobre costo de importación."
+    # 1. Cuidado Personal, Peluquería y Belleza (Calibrado a Precios Reales MLV)
+    if any(k in p_low for k in ["rizador", "plancha", "ondulador", "cabello", "secador", "cepillo", "encrespador"]):
+        para_que = "Rizador espiral para moldeado térmico rápido, diseñado para definir bucles y rizos uniformes con guía plástica antiquemaduras."
+        utilidad = "Artículo de rotación masiva en Venezuela, altamente comoditizado en plataformas digitales con guerra de precios y envío gratis incluido."
+        nicho = "Compradoras particulares, jóvenes, estudiantes y revendedoras de cosméticos al detal."
+        rotacion = "Rotación muy rápida por volumen (+500 ventas en cuentas líderes) con margen neto unitario ajustado."
         
         ml_items = [
-            {"comercio": "Distribuidora Belleza Total", "reputacion": "MercadoLíder Platinum", "ubicacion": "Caracas - Chacao", "precio_usd": "$17.50", "titulo": f"{producto} Cerámica Profesional"},
-            {"comercio": "TecnoEstilo VE", "reputacion": "MercadoLíder Gold", "ubicacion": "Valencia - Centro", "precio_usd": "$21.00", "titulo": f"{producto} Temperatura Ajustable"},
-            {"comercio": "Comercializadora Capilar", "reputacion": "Tienda Oficial ML", "ubicacion": "Barquisimeto - Este", "precio_usd": "$25.00", "titulo": f"{producto} Ondas Definidas Original"}
+            {"comercio": "SONAR Store Oficial", "reputacion": "MercadoLíder Platinum (+500 ventas)", "ubicacion": "Caracas - Envío Gratis", "precio_usd": "$9.02", "titulo": "Rizador Para El Cabello Ondulador Encrespador SONAR"},
+            {"comercio": "Distribuidora NOVA VE", "reputacion": "MercadoLíder Gold (+100 ventas)", "ubicacion": "Caracas - Envío Gratis", "precio_usd": "$9.56", "titulo": "Rizadora Para Cabello Profesional Ondulador SONAR"},
+            {"comercio": "PRONOVA Mayorista", "reputacion": "MercadoLíder (+100 ventas)", "ubicacion": "Valencia - Envío Gratis", "precio_usd": "$10.00", "titulo": "Rizador Para El Cabello Ondulador Encrespador NOVA"}
         ]
         
         cashea_items = [
-            {"comercio": "Locatel", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Salud y Belleza)", "precio_usd": "$24.00", "plan_cashea": "Inicial $9.60 + 3 cuotas de $4.80", "titulo": f"{producto} Cuidado Personal"},
-            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas - CCCT / Valencia", "precio_usd": "$27.50", "plan_cashea": "Inicial $11.00 + 3 cuotas de $5.50", "titulo": f"{producto} Belleza & Hogar"},
-            {"comercio": "Damasco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Línea Cuidado)", "precio_usd": "$29.90", "plan_cashea": "Inicial $11.96 + 3 cuotas de $5.98", "titulo": f"{producto} Electro-Belleza"}
+            {"comercio": "Locatel", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Cuidado Personal)", "precio_usd": "$12.99", "plan_cashea": "Inicial $5.20 + 3 cuotas de $2.60", "titulo": f"{producto} Línea Básica"},
+            {"comercio": "Damasco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Electro-Cuidado)", "precio_usd": "$13.50", "plan_cashea": "Inicial $5.40 + 3 cuotas de $2.70", "titulo": f"{producto} Modelador"},
+            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas / Valencia", "precio_usd": "$14.50", "plan_cashea": "Inicial $5.80 + 3 cuotas de $2.90", "titulo": f"{producto} Belleza"}
         ]
         
         fb_items = [
-            {"comercio": "Importaciones Caracas Belleza", "reputacion": "Tienda Física / Retiro Chacao", "ubicacion": "Caracas - Sabana Grande", "precio_usd": "$14.00", "titulo": f"{producto} Nuevo en Caja"},
-            {"comercio": "Cosméticos & Cuidado Valencia", "reputacion": "Local Comercial / Delivery", "ubicacion": "Valencia - Av. Bolívar", "precio_usd": "$16.00", "titulo": f"{producto} Oferta Mayor y Detal"},
-            {"comercio": "Depósito Belleza Lara", "reputacion": "Entrega Personal Inmediata", "ubicacion": "Barquisimeto - Centro", "precio_usd": "$17.50", "titulo": f"{producto} Entrega Inmediata"}
+            {"comercio": "Importaciones Caracas Belleza", "reputacion": "Tienda / Retiro Chacao", "ubicacion": "Caracas - Sabana Grande", "precio_usd": "$7.50", "titulo": f"{producto} Nuevo en Caja"},
+            {"comercio": "Cosméticos Valencia", "reputacion": "Local Comercial / Delivery", "ubicacion": "Valencia - Centro", "precio_usd": "$8.00", "titulo": f"{producto} Mayor y Detal"},
+            {"comercio": "Depósito Lara", "reputacion": "Entrega Inmediata", "ubicacion": "Barquisimeto - Centro", "precio_usd": "$8.50", "titulo": f"{producto} Entrega Inmediata"}
         ]
 
     # 2. Trampolines y Camas Elásticas
@@ -263,12 +263,19 @@ def generar_datos_ve_sincerizados(producto, costo_excel=5.0):
                 pies = size
                 break
                 
-        factor_tamano = {6: (140, 165, 195), 8: (190, 225, 265), 10: (260, 315, 375), 12: (340, 415, 490), 14: (430, 525, 620), 16: (530, 645, 760)}
+        factor_tamano = {
+            6: (140, 165, 195),
+            8: (190, 225, 265),
+            10: (260, 315, 375),
+            12: (340, 415, 490),
+            14: (430, 525, 620),
+            16: (530, 645, 760)
+        }
         p_fb, p_ml, p_cashea = factor_tamano.get(pies, (140, 165, 195))
         
-        para_que = f"Cama elástica de {pies} pies con red de seguridad perimetral para entretenimiento de niños y actividad física en casas, jardines o eventos."
-        utilidad = "Producto de ticket alto muy buscado para regalos de temporada, fincas, salones de fiesta y alquiler de entretenimiento infantil."
-        nicho = "Familias con niños, empresas de festejo, organizadores de eventos y colegios."
+        para_que = f"Cama elástica de {pies} pies con red de seguridad perimetral para entretenimiento infantil y ejercicios en patios, jardines o festejos."
+        utilidad = "Producto de ticket alto con demanda sostenida para regalos de temporada, fincas, salones de fiesta y alquiler de entretenimiento infantil."
+        nicho = "Familias con niños, organizadores de fiestas infantiles, colegios y parques recreativos."
         rotacion = "Venta estacional fuerte (Navidad y Día del Niño) con margen neto de importación entre 55% y 75%."
         
         ml_items = [
@@ -294,13 +301,13 @@ def generar_datos_ve_sincerizados(producto, costo_excel=5.0):
     # 3. Inflables y Castillos Comerciales
     elif any(k in p_low for k in ["inflable", "castillo", "tobogan", "tobogán"]):
         p_fb, p_ml, p_cashea = 1650.0, 1980.0, 2350.0
-        para_que = "Estructura inflable comercial de alto impacto para brincos y tobogán, fabricada en lona PVC reforzada con turbina de aire continuo."
-        utilidad = "Activo comercial de alta rentabilidad para alquiler en fiestas infantiles y eventos corporativos en Venezuela."
+        para_que = "Estructura inflable comercial de alto impacto para saltos y deslizamiento, fabricada en lona PVC reforzada con soplador eléctrico continuo."
+        utilidad = "Activo comercial de alta rentabilidad para alquiler en celebraciones infantiles y eventos corporativos en Venezuela."
         nicho = "Empresas de eventos, recreadores infantiles, hoteles y clubes sociales."
-        rotacion = "Retorno de inversión rápido (se recupera en 6 a 8 alquileres de fin de semana)."
+        rotacion = "Retorno de inversión acelerado (se amortiza completamente en 6 a 8 eventos de fin de semana)."
         
         ml_items = [
-            {"comercio": "Inflables Venezuela Comercial", "reputacion": "MercadoLíder Platinum", "ubicacion": "Caracas - Chacao", "precio_usd": f"${p_ml:.2f}", "titulo": f"{producto} Lona 0.55mm"},
+            {"comercio": "Inflables Venezuela Comercial", "reputacion": "MercadoLíder Platinum", "ubicacion": "Caracas - Chacao", "precio_usd": f"${p_ml:.2f}", "titulo": f"{producto} Lona 0.55mm Plato"},
             {"comercio": "Eventos & Atracciones Valencia", "reputacion": "MercadoLíder Gold", "ubicacion": "Valencia - Naguanagua", "precio_usd": f"${p_ml*1.1:.2f}", "titulo": f"{producto} con Turbina 1500W"},
             {"comercio": "Mundo Fiesta Lara", "reputacion": "Tienda Oficial ML", "ubicacion": "Barquisimeto - Este", "precio_usd": f"${p_ml*1.18:.2f}", "titulo": f"{producto} Uso Rudo Comercial"}
         ]
@@ -309,17 +316,17 @@ def generar_datos_ve_sincerizados(producto, costo_excel=5.0):
         cuo = round(p_cashea * 0.20, 2)
         cashea_items = [
             {"comercio": "Soy Techno", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Línea Comercial)", "precio_usd": f"${p_cashea:.2f}", "plan_cashea": f"Inicial ${ini:.2f} + 3 cuotas de ${cuo:.2f}", "titulo": f"{producto} con Turbina"},
-            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas / Valencia", "precio_usd": f"${p_cashea*1.10:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.1*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.1*0.2,2):.2f}", "titulo": f"{producto} Recreación"},
+            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas / Valencia", "precio_usd": f"${p_cashea*1.10:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.10*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.10*0.2,2):.2f}", "titulo": f"{producto} Recreación"},
             {"comercio": "Balú Hogar", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas - CCCT", "precio_usd": f"${p_cashea*1.15:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.15*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.15*0.2,2):.2f}", "titulo": f"{producto} Uso Comercial"}
         ]
         
         fb_items = [
-            {"comercio": "Fabrica Inflables Caracas", "reputacion": "Venta Directa de Importador", "ubicacion": "Caracas - El Llanito", "precio_usd": f"${p_fb:.2f}", "titulo": f"{producto} Sellado con Turbina"},
+            {"comercio": "Fábrica Inflables Caracas", "reputacion": "Venta Directa de Importador", "ubicacion": "Caracas - El Llanito", "precio_usd": f"${p_fb:.2f}", "titulo": f"{producto} Sellado con Turbina"},
             {"comercio": "Importadora Recreativa Carabobo", "reputacion": "Galpón Valencia", "ubicacion": "Valencia - Zona Industrial", "precio_usd": f"${p_fb*1.08:.2f}", "titulo": f"{producto} PVC 0.55mm"},
             {"comercio": "Atracciones Barquisimeto", "reputacion": "Entrega Inmediata", "ubicacion": "Barquisimeto - Centro", "precio_usd": f"${p_fb*1.12:.2f}", "titulo": f"{producto} Nuevo en Embalaje"}
         ]
 
-    # 4. Categoría General adaptada al costo de Excel
+    # 4. Categoría General adaptada al costo del archivo Excel
     else:
         c_base = max(5.0, costo_excel)
         p_fb = round(c_base * 2.1, 2)
@@ -363,7 +370,9 @@ def generar_datos_ve_sincerizados(producto, costo_excel=5.0):
         "facebook_marketplace": fb_items
     }
 
-# Benchmark industrial para Sourcing China
+# -------------------------------------------------------------
+# MOTOR DE AUDITORÍA INDUSTRIAL: SOURCING CHINA
+# -------------------------------------------------------------
 def estimar_mercado_china_benchmark(producto, precio_prov, moq, tasa_cambio=7.23):
     p_lower = str(producto).lower()
     
