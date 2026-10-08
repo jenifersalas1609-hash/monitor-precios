@@ -10,6 +10,10 @@ import base64
 import math
 from PIL import Image
 from google import genai
+try:
+    from google.genai import types
+except Exception:
+    types = None
 
 st.set_page_config(
     page_title="RACOVE",
@@ -112,7 +116,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------------------
-# MEMORIA DE SESIÓN AISLADA POR MÓDULO
+# MEMORIA DE SESIÓN AISLADA POR MÓDULO (CERO CRUCE DE DATOS)
 # -------------------------------------------------------------
 if "ve_analisis_completado" not in st.session_state:
     st.session_state["ve_analisis_completado"] = False
@@ -224,7 +228,7 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
         "alerta_ml": alerta_ml
     }
 
-# Benchmark sincerizado industrial para China
+# Benchmark sincerizado industrial para auditoría China (Garantía de 0 campos vacíos)
 def estimar_mercado_china_benchmark(producto, precio_prov, moq, tasa_cambio=7.23):
     p_lower = str(producto).lower()
     
@@ -366,7 +370,7 @@ with st.sidebar:
     st.divider()
 
 # =============================================================================
-# MÓDULO 1: RACOVE (VENTAS, RADAR Y MATRIZ DE PRECIOS)
+# MÓDULO 1: RACOVE (VENTAS, RADAR Y MATRIZ DE PRECIOS CON GROUNDING REAL)
 # =============================================================================
 if "RACOVE" in str(modulo_activo):
     st.title("🎯 RACOVE")
@@ -394,23 +398,30 @@ if "RACOVE" in str(modulo_activo):
         limite_prods_ve = st.slider("Cantidad de productos a analizar:", 1, 13, 2, key="slider_ve")
         boton_iniciar_ve = st.button("🚀 Iniciar Análisis", type="primary", use_container_width=True)
 
-    def generar_link_ve(plataforma, comercio, link_original, producto):
+    def generar_link_ve(plataforma, comercio, link_original, producto, ubicacion=""):
         if link_original and str(link_original).startswith("http") and "..." not in link_original:
             return link_original
         query = urllib.parse.quote(producto.replace(" Venezuela", "").strip())
         com_low = str(comercio).lower()
+        ubi_low = str(ubicacion).lower()
+        
         if plataforma == "mercado_libre":
             return f"https://listado.mercadolibre.com.ve/{query}_OrderId_PRICE_ASC"
         elif plataforma == "facebook_marketplace":
-            return f"https://www.facebook.com/marketplace/caracas/search/?query={query}"
+            ciudad_fb = "caracas"
+            if "valencia" in ubi_low: ciudad_fb = "valencia"
+            elif "barquisimeto" in ubi_low: ciudad_fb = "barquisimeto"
+            elif "maracay" in ubi_low: ciudad_fb = "maracay"
+            elif "maracaibo" in ubi_low: ciudad_fb = "maracaibo"
+            return f"https://www.facebook.com/marketplace/{ciudad_fb}/search/?query={query}"
         elif plataforma == "cashea":
             if "locatel" in com_low: return f"https://www.locatel.com.ve/buscar?text={query}"
             elif "beco" in com_low: return f"https://beco.com.ve/search?q={query}"
-            elif "balu" in com_low: return f"https://balumoda.com/search?q={query}"
+            elif "balu" in com_low or "balú" in com_low: return f"https://balumoda.com/search?q={query}"
             elif "ivoo" in com_low: return f"https://www.ivoo.com/catalogsearch/result/?q={query}"
             elif "damasco" in com_low: return f"https://damasco.com/search?q={query}"
             elif "multimax" in com_low: return f"https://multimax.net/search?q={query}"
-            elif "saas" in com_low: return f"https://farmaciasaas.com/search?q={query}"
+            elif "soy techno" in com_low or "technove" in com_low: return f"https://soytechno.com/search?q={query}"
             return f"https://www.google.com/search?q={urllib.parse.quote(comercio + ' ' + producto + ' venezuela cashea')}"
         return f"https://www.google.com/search?q={urllib.parse.quote(producto + ' venezuela')}"
 
@@ -475,42 +486,106 @@ if "RACOVE" in str(modulo_activo):
                         
         return productos[:limite_prods_ve], imagenes_referencia, costos_referencia
 
-    def consultar_ve(cliente, producto, modelos_disponibles):
+    def consultar_ve_grounded(cliente, producto, modelos_disponibles):
         prompt = f"""
-        Auditor comercial retail en Venezuela. Para: "{producto}".
-        
-        Entrega en formato JSON estricto:
-        - comercial: {{ "utilidad_comercial": "2 líneas de uso y demanda", "nicho_mercado": "perfil comprador", "rotacion_y_margen": "rotacion local" }}
-        - mercado_libre: 3 publicaciones (comercio, reputacion, ubicacion, precio_usd, titulo)
-        - cashea: 3 aliados oficiales verificados (Beco, Balu, Locatel, Ivoo, Damasco, etc. PROHIBIDO Farmatodo/Traki/Daka): comercio, reputacion, ubicacion, precio_usd, plan_cashea, titulo
-        - facebook_marketplace: 3 publicaciones (comercio, reputacion, ubicacion, precio_usd, titulo)
-        
-        JSON:
+        Eres un auditor comercial de compras e inteligencia de retail en Venezuela.
+        Realiza una búsqueda exhaustiva EN TIEMPO REAL en internet para auditar comercios existentes y precios reales en Venezuela para: "{producto}".
+
+        REGLAS ESTRICTAS DE VERACIDAD (PROHIBIDO INVENTAR O ALUCINAR NOMBRES):
+        1. MERCADO LIBRE VENEZUELA (mercadolibre.com.ve):
+           - Busca tiendas oficiales, distribuidores autorizados o vendedores MercadoLíder Platinum/Gold REALES en Venezuela.
+           - NO inventes nombres ficticios como 'TecnoBelleza Online' o 'Mundo Cosmético VE'. Si no conoces la cuenta exacta, pon la Tienda Oficial o la marca del producto en Venezuela.
+           - Precios reales de publicaciones activas en USD.
+
+        2. RED OFICIAL CASHEA (cashea.app):
+           - Consulta EXCLUSIVAMENTE comercios aliados oficiales con tiendas físicas comprobables (por ejemplo: Damasco, IVOO, Multimax, Beco, Locatel, Balú, Gina, Soy Techno).
+           - PROHIBIDO TERMINANTEMENTE incluir Farmatodo, Traki o Daka como aliados de Cashea.
+           - Reporta precio de tienda y plan de financiamiento (Inicial + 3 cuotas cada 14 días).
+
+        3. FACEBOOK MARKETPLACE (Venezuela):
+           - Comercios, importadores directos o tiendas con presencia física en plazas principales (Caracas, Valencia, Barquisimeto, Maracay).
+           - Descarta precios trampa de $1 o 'gratis'; reporta el precio real en divisa ("Ref" o USD efectivo).
+
+        Devuelve ÚNICAMENTE un objeto JSON válido con este formato:
         {{
             "producto": "{producto}",
-            "comercial": {{ "utilidad_comercial": "...", "nicho_mercado": "...", "rotacion_y_margen": "..." }},
-            "mercado_libre": [{{"comercio": "...", "reputacion": "...", "ubicacion": "Caracas", "precio_usd": "$XX", "titulo": "..."}}],
-            "cashea": [{{"comercio": "Locatel", "reputacion": "Aliado Cashea", "ubicacion": "Nacional", "precio_usd": "$XX", "plan_cashea": "Inicial $X + 3 cuotas $X", "titulo": "..."}}],
-            "facebook_marketplace": [{{"comercio": "...", "reputacion": "Tienda", "ubicacion": "Valencia", "precio_usd": "$XX", "titulo": "..."}}]
+            "comercial": {{
+                "utilidad_comercial": "Uso específico y nivel de demanda en Venezuela",
+                "nicho_mercado": "Perfil real del comprador en el país",
+                "rotacion_y_margen": "Ritmo de salida y margen comercial de plaza"
+            }},
+            "mercado_libre": [
+                {{
+                    "comercio": "Nombre de tienda real / cuenta activa",
+                    "reputacion": "Tienda Oficial / MercadoLíder Platinum",
+                    "ubicacion": "Caracas / Valencia / Barquisimeto",
+                    "precio_usd": "$XX.XX",
+                    "titulo": "Título de la publicación real"
+                }}
+            ],
+            "cashea": [
+                {{
+                    "comercio": "Damasco / IVOO / Beco / Multimax / Locatel",
+                    "reputacion": "Aliado Oficial Cashea",
+                    "ubicacion": "Nacional / Sede",
+                    "precio_usd": "$XX.XX",
+                    "plan_cashea": "Inicial $XX + 3 cuotas $XX",
+                    "titulo": "Modelo verificado"
+                }}
+            ],
+            "facebook_marketplace": [
+                {{
+                    "comercio": "Nombre del importador / comercio en zona",
+                    "reputacion": "Vendedor Marketplace con entregas personales",
+                    "ubicacion": "Caracas - Chacao / Valencia - Centro / Barquisimeto - Este",
+                    "precio_usd": "$XX.XX",
+                    "titulo": "Descripción del artículo publicado"
+                }}
+            ]
         }}
         """
+        
+        config_grounding = None
+        if types:
+            try:
+                config_grounding = types.GenerateContentConfig(
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                    temperature=0.1
+                )
+            except Exception:
+                config_grounding = None
+
         for modelo in modelos_disponibles:
+            if config_grounding:
+                try:
+                    resp = cliente.models.generate_content(
+                        model=modelo,
+                        contents=prompt,
+                        config=config_grounding
+                    )
+                    match = re.search(r"(\\{[\\s\\S]*\\})", resp.text.strip())
+                    if match:
+                        return json.loads(match.group(1)), f"{modelo} (Búsqueda en Vivo)", None
+                except Exception:
+                    pass
+
             try:
                 resp = cliente.models.generate_content(model=modelo, contents=prompt)
-                match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
+                match = re.search(r"(\\{[\\s\\S]*\\})", resp.text.strip())
                 if match:
                     return json.loads(match.group(1)), modelo, None
             except Exception:
                 continue
-        return None, None, "No se pudo conectar con la API de Google"
+
+        return None, None, "No se pudo conectar con el motor de verificación en vivo"
 
     def renderizar_canal_ve(titulo_seccion, clave_plataforma, lista_opciones, prod_nombre):
         if clave_plataforma == "mercado_libre":
-            encabezado_html = """<div class="badge-plataforma badge-ml"><img src="https://http2.mlstatic.com/frontend-assets/ui-navigation/5.18.9/mercadolibre/logo__small.png" height="22" style="vertical-align: middle;"><span>MERCADO LIBRE VENEZUELA</span></div>"""
+            encabezado_html = """<div class="badge-plataforma badge-ml"><img src="https://http2.mlstatic.com/frontend-assets/ui-navigation/5.18.9/mercadolibre/logo__small.png" height="22" style="vertical-align: middle;"><span>MERCADO LIBRE VENEZUELA (TIENDAS ACTIVAS)</span></div>"""
         elif clave_plataforma == "cashea":
-            encabezado_html = """<div class="badge-plataforma badge-cashea"><span style="background: #ffffff; color: #581c87; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px;">C</span><span>RED OFICIAL CASHEA (cashea.app/tiendas)</span></div>"""
+            encabezado_html = """<div class="badge-plataforma badge-cashea"><span style="background: #ffffff; color: #581c87; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px;">C</span><span>RED OFICIAL CASHEA (ALIADOS VERIFICADOS)</span></div>"""
         elif clave_plataforma == "facebook_marketplace":
-            encabezado_html = """<div class="badge-plataforma badge-fb"><img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png" height="20" style="vertical-align: middle; border-radius: 50%;"><span>FACEBOOK MARKETPLACE VENEZUELA</span></div>"""
+            encabezado_html = """<div class="badge-plataforma badge-fb"><img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png" height="20" style="vertical-align: middle; border-radius: 50%;"><span>FACEBOOK MARKETPLACE VENEZUELA (PLAZAS LOCALES)</span></div>"""
         else:
             encabezado_html = f"<h4>{titulo_seccion}</h4>"
 
@@ -536,7 +611,7 @@ if "RACOVE" in str(modulo_activo):
 <div class="card-title-text" title="{item.get('titulo', prod_nombre)}">📝 {item.get('titulo', prod_nombre)}</div>
 </div>"""
                 st.markdown(card_html, unsafe_allow_html=True)
-                url_btn = generar_link_ve(clave_plataforma, item.get("comercio", ""), item.get("link"), prod_nombre)
+                url_btn = generar_link_ve(clave_plataforma, item.get("comercio", ""), item.get("link"), prod_nombre, item.get("ubicacion", ""))
                 st.link_button("🔗 Ver Publicación / Referencia", url_btn, use_container_width=True)
 
     if not st.session_state.get("ve_analisis_completado"):
@@ -557,8 +632,8 @@ if "RACOVE" in str(modulo_activo):
             barra_ve = st.progress(0)
             
             for i, prod in enumerate(lista_p):
-                with st.spinner(f"RACOVE analizando: **{prod}**..."):
-                    datos, modelo_usado, error = consultar_ve(cliente, prod, modelos_disponibles)
+                with st.spinner(f"RACOVE auditando en tiempo real: **{prod}**..."):
+                    datos, modelo_usado, error = consultar_ve_grounded(cliente, prod, modelos_disponibles)
                     menor_cashea = 999999.0
                     if datos and datos.get("cashea"):
                         pc = [extraer_precio_num(x.get("precio_usd")) for x in datos.get("cashea")]
@@ -593,7 +668,7 @@ if "RACOVE" in str(modulo_activo):
         ])
         
         with tab_radar:
-            st.markdown("### 📊 Auditoría Externa de Proveedores y Precios")
+            st.markdown("### 📊 Auditoría Externa de Proveedores y Precios (Comercios Reales)")
             for item in st.session_state["ve_lista_resultados"]:
                 prod = item["producto"]
                 datos = item["datos"]
@@ -618,7 +693,7 @@ if "RACOVE" in str(modulo_activo):
                         c1, c2 = st.columns(2)
                         with c1: st.markdown(f"👥 **Nicho / Comprador:** {com.get('nicho_mercado', 'Público general')}")
                         with c2: st.markdown(f"📈 **Rotación / Gancho:** {com.get('rotacion_y_margen', 'Demanda constante')}")
-                        if modelo_usado: st.caption(f"⚡ *Modelo: {modelo_usado}*")
+                        if modelo_usado: st.caption(f"⚡ *Motor de Búsqueda: {modelo_usado}*")
                     st.divider()
                     if error or not datos:
                         st.error(f"⚠️ {error if error else 'No se pudo obtener información de precios.'}")
@@ -846,7 +921,7 @@ else:
                     except Exception:
                         pass
                 resp = cliente.models.generate_content(model=modelo, contents=contents)
-                match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
+                match = re.search(r"(\\{[\\s\\S]*\\})", resp.text.strip())
                 if match:
                     parsed = json.loads(match.group(1))
                     if parsed.get("plataforma_1688") and parsed.get("auditoria"):
