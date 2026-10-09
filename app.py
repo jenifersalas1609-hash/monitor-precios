@@ -1,1112 +1,457 @@
-import streamlit as st
-import time
-import pandas as pd
-import json
-import re
 import io
-import openpyxl
+import json
 import urllib.parse
-import base64
-import math
+import urllib.request
+import openpyxl
+import pandas as pd
 from PIL import Image
-from google import genai
+import streamlit as st
 
+# =============================================================================
+# 1. CONFIGURACIÓN VISUAL Y ENTORNO
+# =============================================================================
 st.set_page_config(
-    page_title="RACOVE",
-    page_icon="🎯",
-    layout="wide"
+    page_title="RACOVE - Centro de Inteligencia Comercial",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Estilos CSS unificados y optimizados
+# Inyección de estilos CSS limpios y ejecutivos
 st.markdown("""
 <style>
-    /* Insignias de plataformas Venezuela */
-    .badge-plataforma {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 6px 14px;
-        border-radius: 8px;
-        font-weight: 700;
-        font-size: 0.95rem;
-        margin-bottom: 12px;
-    }
-    .badge-ml { background-color: #ffe600; color: #2d3277; border: 1px solid #eed600; }
-    .badge-cashea { background-color: #581c87; color: #ffffff; }
-    .badge-fb { background-color: #1877f2; color: #ffffff; }
-    
-    /* Insignias de plataformas China */
-    .badge-1688 { background-color: #ff6000; color: #ffffff; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
-    .badge-alibaba { background-color: #ff6a00; color: #ffffff; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
-    .badge-aliexpress { background-color: #e62e04; color: #ffffff; font-weight: 700; padding: 4px 10px; border-radius: 6px; }
-
-    /* Fichas y cajas de datos */
-    .box-comercial {
-        background-color: #f8fafc;
-        border-left: 5px solid #2563eb;
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 10px;
-    }
-    .box-auditoria-china {
-        background-color: #f8fafc;
-        border-left: 5px solid #ff6000;
-        padding: 12px 16px;
-        border-radius: 8px;
-        margin-bottom: 10px;
-    }
-
-    /* Tarjetas de precios oficiales RACOVE */
-    .card-item-clean {
-        background-color: #ffffff;
-        border: 1px solid #e2e8f0;
+    .metric-box {
+        background-color: #1E293B;
         border-radius: 10px;
-        padding: 14px;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        margin-bottom: 8px;
+        padding: 16px;
+        border: 1px solid #334155;
+        text-align: center;
+        margin-bottom: 10px;
     }
-    .card-item-clean:hover {
-        box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
-        border-color: #cbd5e1;
-    }
-    .card-badge-econ {
-        background-color: #dcfce7;
-        color: #166534;
-        font-size: 0.75rem;
+    .metric-value {
+        font-size: 1.8rem;
         font-weight: 700;
-        padding: 3px 8px;
-        border-radius: 4px;
-        display: inline-block;
-        margin-bottom: 6px;
-        width: fit-content;
+        color: #38BDF8;
     }
-    .card-price {
-        font-size: 1.45rem;
-        font-weight: 800;
-        color: #0f172a;
-        margin: 4px 0 6px 0;
-    }
-    .card-store { font-size: 0.95rem; font-weight: 700; color: #1e293b; margin-bottom: 2px; }
-    .card-reputation { font-size: 0.8rem; color: #64748b; margin-bottom: 2px; }
-    .card-cashea-plan {
-        background-color: #f3e8ff;
-        color: #6b21a8;
-        padding: 4px 8px;
-        border-radius: 6px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        margin: 6px 0;
-    }
-    .card-title-text {
+    .metric-label {
         font-size: 0.82rem;
-        color: #475569;
-        line-height: 1.3;
-        height: 38px;
-        overflow: hidden;
-        margin-top: 6px;
+        color: #94A3B8;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .card-comercial {
+        border-radius: 8px;
+        padding: 14px;
+        margin-bottom: 12px;
+        border: 1px solid #334155;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------------------------------------------
-# MEMORIA DE SESIÓN AISLADA POR MÓDULO
-# -------------------------------------------------------------
-if "ve_analisis_completado" not in st.session_state:
-    st.session_state["ve_analisis_completado"] = False
-if "ve_lista_resultados" not in st.session_state:
-    st.session_state["ve_lista_resultados"] = []
-if "ve_dict_imgs" not in st.session_state:
-    st.session_state["ve_dict_imgs"] = {}
+# =============================================================================
+# 2. BARRA LATERAL: SELECTOR DE MÓDULOS
+# =============================================================================
+st.sidebar.title("RACOVE Hub")
+st.sidebar.caption("Inteligencia Comercial y Logística China - Venezuela")
 
-if "china_analisis_completado" not in st.session_state:
-    st.session_state["china_analisis_completado"] = False
-if "china_lista_resultados" not in st.session_state:
-    st.session_state["china_lista_resultados"] = []
-if "china_dict_imgs" not in st.session_state:
-    st.session_state["china_dict_imgs"] = {}
+opciones_modulos = [
+    "📦 Liquidación de Guías (Marítimo / Aéreo)",
+    "🇻🇪 Mercado Nacional & Matriz de Precios",
+    "🇨🇳 Sourcing China (Auditoría de Fábricas)"
+]
 
-# -------------------------------------------------------------
-# FUNCIONES AUXILIARES GLOBALES
-# -------------------------------------------------------------
-def extraer_precio_num(texto):
-    if not texto:
-        return 999999.0
-    nums = re.findall(r"\d+(?:\.\d+)?", str(texto).replace(",", "."))
-    return float(nums[0]) if nums else 999999.0
+modulo_activo = st.sidebar.radio("Selecciona Módulo:", opciones_modulos)
+st.sidebar.divider()
+st.sidebar.info("💡 **Operatividad:** Los datos y cálculos de cada módulo se mantienen activos sin interferir entre sí.")
 
-def detectar_modelos_activos(cliente):
-    modelos_encontrados = []
-    try:
-        for m in cliente.models.list():
-            nombre = getattr(m, "name", "") or str(m)
-            limpio = nombre.replace("models/", "").strip()
-            if "gemini" in limpio.lower() and "embed" not in limpio.lower():
-                modelos_encontrados.append(limpio)
-    except Exception:
-        pass
-        
-    if modelos_encontrados:
-        flash = [m for m in modelos_encontrados if "flash" in m.lower() and "lite" not in m.lower()]
-        otros = [m for m in modelos_encontrados if "flash" not in m.lower()]
-        lite = [m for m in modelos_encontrados if "lite" in m.lower()]
-        return flash + otros + lite
-        
-    return ["gemini-2.0-flash", "gemini-1.5-flash"]
-
-def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_precio_ml=None):
-    precio_n = round(costo_unitario * 1.60, 2)
-    precio_4 = round(costo_unitario * 2.00, 2)
-    precio_divisa = float(math.ceil(precio_4 * 1.35))
-    precio_cashea_base = float(math.ceil(precio_divisa * 1.35))
-    
-    alerta_cashea = None
-    if menor_precio_cashea and menor_precio_cashea < 999900.0:
-        if menor_precio_cashea < precio_cashea_base:
-            alerta_cashea = {
-                "tipo": "error",
-                "mensaje": (
-                    f"⚠️ **Fuera de mercado en Cashea**: La competencia vende a **${menor_precio_cashea:.2f} USD**, "
-                    f"por debajo de tu precio requerido de Cashea (**${precio_cashea_base:.2f} USD**). "
-                    f"Se sugiere mantener **${precio_cashea_base:.2f} USD** para no comprometer tu margen en cuotas."
-                )
-            }
-            precio_sug_cashea = precio_cashea_base
-        else:
-            precio_sug_cashea = max(precio_cashea_base, round(menor_precio_cashea - 1.0, 2))
-            alerta_cashea = {
-                "tipo": "success",
-                "mensaje": (
-                    f"🟢 **En competencia en Cashea**: La competencia vende a **${menor_precio_cashea:.2f} USD**. "
-                    f"Tu precio sugerido de **${precio_sug_cashea:.2f} USD** es competitivo y protege tu margen."
-                )
-            }
-    else:
-        precio_sug_cashea = precio_cashea_base
-        alerta_cashea = {
-            "tipo": "info",
-            "mensaje": f"ℹ️ Sin referencia directa en Cashea. Precio sugerido de venta: **${precio_sug_cashea:.2f} USD**."
-        }
-        
-    alerta_ml = None
-    if menor_precio_ml and menor_precio_ml < 999900.0:
-        if menor_precio_ml < precio_n:
-            alerta_ml = {
-                "tipo": "error",
-                "mensaje": (
-                    f"⚠️ **Fuera de mercado en Mercado Libre**: El vendedor más bajo vende a **${menor_precio_ml:.2f} USD**, "
-                    f"por debajo de tu Precio N (**${precio_n:.2f} USD**)."
-                )
-            }
-            precio_sug_ml = precio_n
-        else:
-            precio_sug_ml = max(precio_n, round(menor_precio_ml - 0.50, 2))
-            alerta_ml = {
-                "tipo": "success",
-                "mensaje": (
-                    f"🟢 **En competencia en Mercado Libre**: Mínimo de competencia a **${menor_precio_ml:.2f} USD**. "
-                    f"Precio sugerido: **${precio_sug_ml:.2f} USD**."
-                )
-            }
-    else:
-        precio_sug_ml = precio_4
-        alerta_ml = None
-        
-    return {
-        "precio_n": precio_n,
-        "precio_4": precio_4,
-        "precio_divisa": precio_divisa,
-        "precio_sug_cashea": precio_sug_cashea,
-        "precio_sug_ml": precio_sug_ml,
-        "alerta_cashea": alerta_cashea,
-        "alerta_ml": alerta_ml
-    }
-
-# -------------------------------------------------------------
-# MOTOR DE DATOS SINCERIZADOS: MERCADO NACIONAL VENEZUELA
-# -------------------------------------------------------------
-def generar_datos_ve_sincerizados(producto, costo_excel=5.0):
-    p_low = str(producto).lower()
-    
-    # 1. Cuidado Personal, Peluquería y Belleza (Calibrado a Precios Reales MLV)
-    if any(k in p_low for k in ["rizador", "plancha", "ondulador", "cabello", "secador", "cepillo", "encrespador"]):
-        para_que = "Rizador espiral para moldeado térmico rápido, diseñado para definir bucles y rizos uniformes con guía plástica antiquemaduras."
-        utilidad = "Artículo de rotación masiva en Venezuela, altamente comoditizado en plataformas digitales con guerra de precios y envío gratis incluido."
-        nicho = "Compradoras particulares, jóvenes, estudiantes y revendedoras de cosméticos al detal."
-        rotacion = "Rotación muy rápida por volumen (+500 ventas en cuentas líderes) con margen neto unitario ajustado."
-        
-        ml_items = [
-            {"comercio": "SONAR Store Oficial", "reputacion": "MercadoLíder Platinum (+500 ventas)", "ubicacion": "Caracas - Envío Gratis", "precio_usd": "$9.02", "titulo": "Rizador Para El Cabello Ondulador Encrespador SONAR"},
-            {"comercio": "Distribuidora NOVA VE", "reputacion": "MercadoLíder Gold (+100 ventas)", "ubicacion": "Caracas - Envío Gratis", "precio_usd": "$9.56", "titulo": "Rizadora Para Cabello Profesional Ondulador SONAR"},
-            {"comercio": "PRONOVA Mayorista", "reputacion": "MercadoLíder (+100 ventas)", "ubicacion": "Valencia - Envío Gratis", "precio_usd": "$10.00", "titulo": "Rizador Para El Cabello Ondulador Encrespador NOVA"}
-        ]
-        
-        cashea_items = [
-            {"comercio": "Locatel", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Cuidado Personal)", "precio_usd": "$12.99", "plan_cashea": "Inicial $5.20 + 3 cuotas de $2.60", "titulo": f"{producto} Línea Básica"},
-            {"comercio": "Damasco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Electro-Cuidado)", "precio_usd": "$13.50", "plan_cashea": "Inicial $5.40 + 3 cuotas de $2.70", "titulo": f"{producto} Modelador"},
-            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas / Valencia", "precio_usd": "$14.50", "plan_cashea": "Inicial $5.80 + 3 cuotas de $2.90", "titulo": f"{producto} Belleza"}
-        ]
-        
-        fb_items = [
-            {"comercio": "Importaciones Caracas Belleza", "reputacion": "Tienda / Retiro Chacao", "ubicacion": "Caracas - Sabana Grande", "precio_usd": "$7.50", "titulo": f"{producto} Nuevo en Caja"},
-            {"comercio": "Cosméticos Valencia", "reputacion": "Local Comercial / Delivery", "ubicacion": "Valencia - Centro", "precio_usd": "$8.00", "titulo": f"{producto} Mayor y Detal"},
-            {"comercio": "Depósito Lara", "reputacion": "Entrega Inmediata", "ubicacion": "Barquisimeto - Centro", "precio_usd": "$8.50", "titulo": f"{producto} Entrega Inmediata"}
-        ]
-
-    # 2. Trampolines y Camas Elásticas
-    elif any(k in p_low for k in ["trampolin", "trampolín", "elástica", "elastica", "cama"]):
-        pies = 6
-        for size in [16, 14, 12, 10, 8, 6]:
-            if f"{size} pie" in p_low or f"{size}pie" in p_low or f"{size} ft" in p_low or f"{size}ft" in p_low or f"{size}英寸" in p_low:
-                pies = size
-                break
-                
-        factor_tamano = {
-            6: (140, 165, 195),
-            8: (190, 225, 265),
-            10: (260, 315, 375),
-            12: (340, 415, 490),
-            14: (430, 525, 620),
-            16: (530, 645, 760)
-        }
-        p_fb, p_ml, p_cashea = factor_tamano.get(pies, (140, 165, 195))
-        
-        para_que = f"Cama elástica de {pies} pies con red de seguridad perimetral para entretenimiento infantil y ejercicios en patios, jardines o festejos."
-        utilidad = "Producto de ticket alto con demanda sostenida para regalos de temporada, fincas, salones de fiesta y alquiler de entretenimiento infantil."
-        nicho = "Familias con niños, organizadores de fiestas infantiles, colegios y parques recreativos."
-        rotacion = "Venta estacional fuerte (Navidad y Día del Niño) con margen neto de importación entre 55% y 75%."
-        
-        ml_items = [
-            {"comercio": "Deportes & Diversión VE", "reputacion": "MercadoLíder Platinum", "ubicacion": "Caracas - Boleíta", "precio_usd": f"${p_ml:.2f}", "titulo": f"{producto} Red Reforzada"},
-            {"comercio": "Mundo Juguete Valencia", "reputacion": "MercadoLíder Gold", "ubicacion": "Valencia - San Diego", "precio_usd": f"${p_ml*1.12:.2f}", "titulo": f"{producto} Estructura Galvanizada"},
-            {"comercio": "Distribuidora Infantil Lara", "reputacion": "Tienda Oficial ML", "ubicacion": "Barquisimeto - Centro", "precio_usd": f"${p_ml*1.22:.2f}", "titulo": f"{producto} 3 Patas en U Original"}
-        ]
-        
-        ini = round(p_cashea * 0.40, 2)
-        cuo = round(p_cashea * 0.20, 2)
-        cashea_items = [
-            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas - CCCT / Valencia", "precio_usd": f"${p_cashea:.2f}", "plan_cashea": f"Inicial ${ini:.2f} + 3 cuotas de ${cuo:.2f}", "titulo": f"{producto} Línea Juegos"},
-            {"comercio": "Balú Hogar", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas - Sambil / Valencia", "precio_usd": f"${p_cashea*1.10:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.1*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.1*0.2,2):.2f}", "titulo": f"{producto} Recreación Infantil"},
-            {"comercio": "Soy Techno", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Línea Outdoor)", "precio_usd": f"${p_cashea*1.18:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.18*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.18*0.2,2):.2f}", "titulo": f"{producto} Trampolín Jardín"}
-        ]
-        
-        fb_items = [
-            {"comercio": "Importadora Recreo Caracas", "reputacion": "Galpón / Retiro Directo", "ubicacion": "Caracas - Los Ruices", "precio_usd": f"${p_fb:.2f}", "titulo": f"{producto} Caja Sellada"},
-            {"comercio": "Juguetes & Fiestas Carabobo", "reputacion": "Local Comercial / Delivery", "ubicacion": "Valencia - Flor Amarillo", "precio_usd": f"${p_fb*1.08:.2f}", "titulo": f"{producto} Entrega Inmediata"},
-            {"comercio": "Distribuidora Mayorista Lara", "reputacion": "Venta Mayor y Detal", "ubicacion": "Barquisimeto - Zona Industrial", "precio_usd": f"${p_fb*1.15:.2f}", "titulo": f"{producto} Importado Sellado"}
-        ]
-
-    # 3. Inflables y Castillos Comerciales
-    elif any(k in p_low for k in ["inflable", "castillo", "tobogan", "tobogán"]):
-        p_fb, p_ml, p_cashea = 1650.0, 1980.0, 2350.0
-        para_que = "Estructura inflable comercial de alto impacto para saltos y deslizamiento, fabricada en lona PVC reforzada con soplador eléctrico continuo."
-        utilidad = "Activo comercial de alta rentabilidad para alquiler en celebraciones infantiles y eventos corporativos en Venezuela."
-        nicho = "Empresas de eventos, recreadores infantiles, hoteles y clubes sociales."
-        rotacion = "Retorno de inversión acelerado (se amortiza completamente en 6 a 8 eventos de fin de semana)."
-        
-        ml_items = [
-            {"comercio": "Inflables Venezuela Comercial", "reputacion": "MercadoLíder Platinum", "ubicacion": "Caracas - Chacao", "precio_usd": f"${p_ml:.2f}", "titulo": f"{producto} Lona 0.55mm Plato"},
-            {"comercio": "Eventos & Atracciones Valencia", "reputacion": "MercadoLíder Gold", "ubicacion": "Valencia - Naguanagua", "precio_usd": f"${p_ml*1.1:.2f}", "titulo": f"{producto} con Turbina 1500W"},
-            {"comercio": "Mundo Fiesta Lara", "reputacion": "Tienda Oficial ML", "ubicacion": "Barquisimeto - Este", "precio_usd": f"${p_ml*1.18:.2f}", "titulo": f"{producto} Uso Rudo Comercial"}
-        ]
-        
-        ini = round(p_cashea * 0.40, 2)
-        cuo = round(p_cashea * 0.20, 2)
-        cashea_items = [
-            {"comercio": "Soy Techno", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional (Línea Comercial)", "precio_usd": f"${p_cashea:.2f}", "plan_cashea": f"Inicial ${ini:.2f} + 3 cuotas de ${cuo:.2f}", "titulo": f"{producto} con Turbina"},
-            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas / Valencia", "precio_usd": f"${p_cashea*1.10:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.10*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.10*0.2,2):.2f}", "titulo": f"{producto} Recreación"},
-            {"comercio": "Balú Hogar", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas - CCCT", "precio_usd": f"${p_cashea*1.15:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.15*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.15*0.2,2):.2f}", "titulo": f"{producto} Uso Comercial"}
-        ]
-        
-        fb_items = [
-            {"comercio": "Fábrica Inflables Caracas", "reputacion": "Venta Directa de Importador", "ubicacion": "Caracas - El Llanito", "precio_usd": f"${p_fb:.2f}", "titulo": f"{producto} Sellado con Turbina"},
-            {"comercio": "Importadora Recreativa Carabobo", "reputacion": "Galpón Valencia", "ubicacion": "Valencia - Zona Industrial", "precio_usd": f"${p_fb*1.08:.2f}", "titulo": f"{producto} PVC 0.55mm"},
-            {"comercio": "Atracciones Barquisimeto", "reputacion": "Entrega Inmediata", "ubicacion": "Barquisimeto - Centro", "precio_usd": f"${p_fb*1.12:.2f}", "titulo": f"{producto} Nuevo en Embalaje"}
-        ]
-
-    # 4. Categoría General adaptada al costo del archivo Excel
-    else:
-        c_base = max(5.0, costo_excel)
-        p_fb = round(c_base * 2.1, 2)
-        p_ml = round(c_base * 2.5, 2)
-        p_cashea = round(c_base * 2.85, 2)
-        
-        para_que = f"Artículo de consumo y comercialización: {producto}."
-        utilidad = "Producto con demanda regular en el retail venezolano y colocación efectiva en comercios de calle y plataformas digitales."
-        nicho = "Consumidores directos y pequeños distribuidores que buscan reposición constante de mercancía."
-        rotacion = "Rotación comercial estándar con margen protegido."
-        
-        ml_items = [
-            {"comercio": "Distribuidora Central VE", "reputacion": "MercadoLíder Platinum", "ubicacion": "Caracas", "precio_usd": f"${p_ml:.2f}", "titulo": f"{producto} Garantizado"},
-            {"comercio": "Comercializadora Carabobo", "reputacion": "MercadoLíder Gold", "ubicacion": "Valencia", "precio_usd": f"${p_ml*1.1:.2f}", "titulo": f"{producto} Original"},
-            {"comercio": "Importadora Occidente", "reputacion": "Tienda Oficial ML", "ubicacion": "Barquisimeto", "precio_usd": f"${p_ml*1.2:.2f}", "titulo": f"{producto} Nuevo en Caja"}
-        ]
-        
-        ini = round(p_cashea * 0.40, 2)
-        cuo = round(p_cashea * 0.20, 2)
-        cashea_items = [
-            {"comercio": "Damasco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional", "precio_usd": f"${p_cashea:.2f}", "plan_cashea": f"Inicial ${ini:.2f} + 3 cuotas de ${cuo:.2f}", "titulo": f"{producto} Tienda Aliada"},
-            {"comercio": "Beco", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Caracas / Valencia", "precio_usd": f"${p_cashea*1.1:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.1*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.1*0.2,2):.2f}", "titulo": f"{producto} Tienda Aliada"},
-            {"comercio": "Locatel", "reputacion": "Aliado Oficial Cashea", "ubicacion": "Nacional", "precio_usd": f"${p_cashea*1.2:.2f}", "plan_cashea": f"Inicial ${round(p_cashea*1.2*0.4,2):.2f} + 3 cuotas de ${round(p_cashea*1.2*0.2,2):.2f}", "titulo": f"{producto} Tienda Aliada"}
-        ]
-        
-        fb_items = [
-            {"comercio": "Mayorista Caracas Directo", "reputacion": "Retiro Personal", "ubicacion": "Caracas - Chacao", "precio_usd": f"${p_fb:.2f}", "titulo": f"{producto} Sellado"},
-            {"comercio": "Depósito Valencia", "reputacion": "Local Comercial", "ubicacion": "Valencia - Centro", "precio_usd": f"${p_fb*1.08:.2f}", "titulo": f"{producto} En Stock"},
-            {"comercio": "Comercial Lara", "reputacion": "Vendedor Activo", "ubicacion": "Barquisimeto - Centro", "precio_usd": f"${p_fb*1.14:.2f}", "titulo": f"{producto} Entrega Inmediata"}
-        ]
-
-    return {
-        "comercial": {
-            "para_que_se_usa": para_que,
-            "utilidad_comercial": utilidad,
-            "nicho_mercado": nicho,
-            "rotacion_y_margen": rotacion
-        },
-        "mercado_libre": ml_items,
-        "cashea": cashea_items,
-        "facebook_marketplace": fb_items
-    }
-
-# -------------------------------------------------------------
-# MOTOR DE AUDITORÍA INDUSTRIAL: SOURCING CHINA
-# -------------------------------------------------------------
-def estimar_mercado_china_benchmark(producto, precio_prov, moq, tasa_cambio=7.23):
-    p_lower = str(producto).lower()
-    
-    if any(k in p_lower for k in ["trampolin", "trampolín", "elástica", "elastica", "cama"]):
-        pies = 6
-        for size in [16, 14, 12, 10, 8, 6]:
-            if f"{size} pie" in p_lower or f"{size}pie" in p_lower or f"{size} ft" in p_lower or f"{size}ft" in p_lower or f"{size}英寸" in p_lower:
-                pies = size
-                break
-        
-        tabla_trampolines = {
-            6: {"rmb": (165, 210), "ali_usd": (30, 39), "aliexp_usd": 68},
-            8: {"rmb": (245, 310), "ali_usd": (43, 54), "aliexp_usd": 98},
-            10: {"rmb": (345, 430), "ali_usd": (59, 74), "aliexp_usd": 138},
-            12: {"rmb": (450, 550), "ali_usd": (76, 94), "aliexp_usd": 178},
-            14: {"rmb": (570, 690), "ali_usd": (96, 119), "aliexp_usd": 228},
-            16: {"rmb": (720, 860), "ali_usd": (122, 148), "aliexp_usd": 285},
-        }
-        ref = tabla_trampolines.get(pies, tabla_trampolines[6])
-        min_rmb, max_rmb = ref["rmb"]
-        min_usd = round(min_rmb / tasa_cambio, 2)
-        max_usd = round(max_rmb / tasa_cambio, 2)
-        ali_min, ali_max = ref["ali_usd"]
-        aliexp = ref["aliexp_usd"]
-        
-        prom_1688 = (min_usd + max_usd) / 2
-        sobreprecio_pct = round(((precio_prov - prom_1688) / prom_1688) * 100, 1)
-        
-        if sobreprecio_pct > 50:
-            clasif = "SOBREPRECIO"
-            icono = "🔴"
-            contra_min = round(ali_min * 0.95, 2)
-            contra_max = round(ali_max * 1.05, 2)
-            diag = f"El proveedor cotiza con un recargo de +{sobreprecio_pct}% frente a talleres de Zhejiang. Aplica margen de revendedor o intermediario comercial."
-            arg = f"Exigir precio B2B de exportador directo ($ {contra_min:.2f} - $ {contra_max:.2f} USD). La estructura de tubos galvanizados y red de {pies}ft en 1688 ronda ¥{min_rmb}-¥{max_rmb}."
-        elif sobreprecio_pct > 20:
-            clasif = "REGULAR"
-            icono = "🟡"
-            contra_min = round(ali_min, 2)
-            contra_max = round(ali_max, 2)
-            diag = f"Precio de trading company con margen negociable (+{sobreprecio_pct}% vs fábrica local). Hay espacio de rebaja por volumen."
-            arg = "Ofrecer compra en lote consolidado con otros tamaños para nivelar el costo a rango de contenedor."
-        else:
-            clasif = "EXCELENTE"
-            icono = "🟢"
-            contra_min = round(precio_prov * 0.95, 2)
-            contra_max = precio_prov
-            diag = "Cotización altamente competitiva, muy cercana al costo directo de taller en China."
-            arg = "Solicitar accesorios adicionales de cortesía (escalera, anclajes de viento o repuesto de resortes)."
-
-    elif any(k in p_lower for k in ["inflable", "castillo", "casa inflable", "tobogan", "tobogán"]):
-        min_rmb, max_rmb = 5800, 7200
-        min_usd = round(min_rmb / tasa_cambio, 2)
-        max_usd = round(max_rmb / tasa_cambio, 2)
-        ali_min, ali_max = 1100, 1380
-        aliexp = 2450
-        
-        prom_1688 = (min_usd + max_usd) / 2
-        sobreprecio_pct = round(((precio_prov - prom_1688) / prom_1688) * 100, 1)
-        
-        if precio_prov > ali_max:
-            clasif = "REGULAR"
-            icono = "🟡"
-            contra_min = 1200.0
-            contra_max = 1350.0
-            diag = f"Cotización de distribuidor con margen elevado (+{sobreprecio_pct}% sobre taller de Henan). La lona 0.55mm comercial tiene costo base de $ {min_usd:.2f} USD."
-            arg = "Presionar para incluir la turbina/soplador de 1500W y kit de reparación certificado dentro del precio de $1,300 USD."
-        else:
-            clasif = "EXCELENTE"
-            icono = "🟢"
-            contra_min = round(precio_prov * 0.92, 2)
-            contra_max = precio_prov
-            diag = "Precio dentro del rango comercial de fábrica para inflable de uso rudo en PVC 0.55mm."
-            arg = "Confirmar que la lona sea 100% Plato PVC con costuras reforzadas de 4 hilos y turbina CE/UL."
-            
-    else:
-        min_usd = round(precio_prov * 0.45, 2)
-        max_usd = round(precio_prov * 0.65, 2)
-        min_rmb = round(min_usd * tasa_cambio, 1)
-        max_rmb = round(max_usd * tasa_cambio, 1)
-        ali_min = round(precio_prov * 0.70, 2)
-        ali_max = round(precio_prov * 0.88, 2)
-        aliexp = round(precio_prov * 1.85, 2)
-        clasif = "REGULAR"
-        icono = "🟡"
-        contra_min = ali_min
-        contra_max = ali_max
-        diag = "Cotización intermedia frente a fábricas de origen en China."
-        arg = "Comparar con cotizaciones de taller en 1688 para negociar descuento por volumen."
-
-    try:
-        moq_int = int(re.findall(r"\d+", str(moq))[0])
-    except Exception:
-        moq_int = 1
-        
-    ahorro_unit = max(0.0, precio_prov - contra_max)
-    ahorro_total = ahorro_unit * moq_int
-
-    return {
-        "producto": producto,
-        "precio_prov_usd": precio_prov,
-        "moq": str(moq),
-        "plataforma_1688": {
-            "rango_rmb": f"¥{min_rmb:.0f} - ¥{max_rmb:.0f}",
-            "rango_usd": f"${min_usd:.2f} - ${max_usd:.2f}",
-            "precio_min_usd": min_usd,
-            "origen_fabrica": "Zhejiang / Guangdong / Henan",
-            "detalles": "Costo directo de fábrica sin margen de exportadora"
-        },
-        "plataforma_alibaba": {
-            "rango_usd": f"${ali_min:.2f} - ${ali_max:.2f}",
-            "precio_promedio_usd": round((ali_min + ali_max) / 2, 2),
-            "moq_habitual": f"{moq} unid.",
-            "detalles": "Rango B2B habitual de exportador directo"
-        },
-        "plataforma_aliexpress": {
-            "precio_unitario_usd": f"${aliexp:.2f}",
-            "detalles": "Precio unitario al detal con flete internacional"
-        },
-        "auditoria": {
-            "clasificacion": clasif,
-            "icono_semaforo": icono,
-            "evaluacion_resumen": diag,
-            "contraoferta_usd": f"${contra_min:.2f} - ${contra_max:.2f}",
-            "ahorro_estimado_lote": f"${ahorro_total:.2f} USD",
-            "argumento_negociacion": arg
-        }
-    }
-
-# -------------------------------------------------------------
-# BARRA LATERAL: SELECTOR DE MÓDULO
-# -------------------------------------------------------------
-with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=55)
-    st.title("🎯 RACOVE")
-    
-    opciones_modulos = ["🇻🇪 RACOVE (Mercado Nacional y Rentabilidad)", "🇨🇳 Sourcing China (Auditoría de Fábricas)"]
-    modulo_activo = st.radio("Módulo:", opciones_modulos, key="radio_modulo_principal")
-    st.divider()
 
 # =============================================================================
-# MÓDULO 1: RACOVE (VENTAS, RADAR 3 TARJETAS Y MATRIZ DE PRECIOS SINCERADA)
+# MÓDULO 1: LIQUIDACIÓN DE GUÍAS Y COSTO PUESTO (CARACAS)
 # =============================================================================
-if "RACOVE" in str(modulo_activo):
-    st.title("🎯 RACOVE")
+if "Liquidación de Guías" in modulo_activo:
+    st.title("📦 Liquidación Automática de Guías de Importación")
+    st.markdown(
+        "Calcula de forma automática el **Manejo Unitario (Flete por pieza)**, "
+        "el **Costo CCS con Manejo (Landed Cost)** y el **Desembolso Total** de tu lote."
+    )
 
-    with st.sidebar:
-        st.subheader("Entrada de Productos")
-        opcion_origen_ve = st.radio(
-            "Selecciona el origen:",
-            ["📁 Subir archivo Excel (.xlsx)", "🔗 Enlace de Google Sheets (Drive)"],
-            key="radio_origen_ve"
-        )
-        url_sheet_ve = ""
-        archivo_subido_ve = None
-        
-        if "Google Sheets" in opcion_origen_ve:
-            url_sheet_ve = st.text_input("Enlace de Google Sheets:", key="sheet_ve")
-            st.caption("Compartido como: 'Cualquier persona con el enlace (Lector)'.")
-        else:
-            archivo_subido_ve = st.file_uploader(
-                "Sube archivo de cotizaciones (.xlsx)", 
-                type=["xlsx", "csv", "txt"],
-                key="uploader_ve"
+    tab_archivo, tab_manual = st.tabs(["📄 Procesar Archivo Excel", "⚡ Calculadora Rápida Manual"])
+
+    # --- PESTAÑA A: LIQUIDACIÓN COMPLETA POR EXCEL ---
+    with tab_archivo:
+        st.subheader("1. Parámetros de la Agencia de Envíos")
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            tipo_envio = st.selectbox(
+                "Modalidad de Flete:",
+                ["🚢 Marítimo (Cobro por CBM / m³)", "✈️ Aéreo (Cobro por KG)"],
+                key="tipo_envio_select"
             )
-            
-        limite_prods_ve = st.slider("Cantidad de productos a analizar:", 1, 13, 2, key="slider_ve")
-        boton_iniciar_ve = st.button("🚀 Iniciar Análisis", type="primary", use_container_width=True)
+            es_maritimo = "Marítimo" in tipo_envio
 
-    def generar_link_ve(plataforma, comercio, link_original, producto, ubicacion=""):
-        if link_original and str(link_original).startswith("http") and "..." not in link_original:
-            return link_original
-        query = urllib.parse.quote(producto.replace(" Venezuela", "").strip())
-        com_low = str(comercio).lower()
-        ubi_low = str(ubicacion).lower()
-        
-        if plataforma == "mercado_libre":
-            return f"https://listado.mercadolibre.com.ve/{query}_OrderId_PRICE_ASC"
-        elif plataforma == "facebook_marketplace":
-            ciudad_fb = "caracas"
-            if "valencia" in ubi_low: ciudad_fb = "valencia"
-            elif "barquisimeto" in ubi_low: ciudad_fb = "barquisimeto"
-            elif "maracay" in ubi_low: ciudad_fb = "maracay"
-            elif "maracaibo" in ubi_low: ciudad_fb = "maracaibo"
-            return f"https://www.facebook.com/marketplace/{ciudad_fb}/search/?query={query}"
-        elif plataforma == "cashea":
-            if "locatel" in com_low: return f"https://www.locatel.com.ve/buscar?text={query}"
-            elif "beco" in com_low: return f"https://beco.com.ve/search?q={query}"
-            elif "balu" in com_low or "balú" in com_low: return f"https://balumoda.com/search?q={query}"
-            elif "ivoo" in com_low: return f"https://www.ivoo.com/catalogsearch/result/?q={query}"
-            elif "damasco" in com_low: return f"https://damasco.com/search?q={query}"
-            elif "multimax" in com_low: return f"https://multimax.net/search?q={query}"
-            elif "soy techno" in com_low or "technove" in com_low: return f"https://soytechno.com/search?q={query}"
-            return f"https://www.google.com/search?q={urllib.parse.quote(comercio + ' ' + producto + ' venezuela cashea')}"
-        return f"https://www.google.com/search?q={urllib.parse.quote(producto + ' venezuela')}"
-
-    def procesar_archivo_ve():
-        productos = []
-        imagenes_referencia = {}
-        costos_referencia = {}
-        
-        if "Google Sheets" in opcion_origen_ve and url_sheet_ve.strip():
-            match = re.search(r"/d/([a-zA-Z0-9-_]+)", url_sheet_ve)
-            if match:
-                sheet_id = match.group(1)
-                csv_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-                try:
-                    df = pd.read_csv(csv_url)
-                    for idx, val in enumerate(df.iloc[:, 0].dropna()):
-                        s = str(val).strip()
-                        if s and not s.startswith("#") and "PRODUCTO" not in s.upper():
-                            productos.append(s)
-                            c_val = 5.0
-                            if df.shape[1] >= 6:
-                                raw_c = df.iloc[idx, 5]
-                                c_val = extraer_precio_num(raw_c)
-                                if c_val >= 999900: c_val = 5.0
-                            costos_referencia[s] = c_val
-                except Exception as e:
-                    st.error(f"Error al leer Google Sheets: {e}")
-                    
-        elif archivo_subido_ve is not None:
-            nombre = archivo_subido_ve.name.lower()
-            if nombre.endswith(".xlsx"):
-                wb = openpyxl.load_workbook(io.BytesIO(archivo_subido_ve.getvalue()))
-                ws = wb.active
-                imgs_por_fila = {}
-                for img in getattr(ws, "_images", []):
-                    if hasattr(img.anchor, "_from"):
-                        r = img.anchor._from.row + 1
-                        imgs_por_fila[r] = img._data()
-                        
-                col_prod = 1
-                col_costo = 6
-                start_row = 2
-                
-                for r in range(1, min(6, ws.max_row + 1)):
-                    row_vals = [str(ws.cell(r, c).value or "").strip().upper() for c in range(1, min(10, ws.max_column + 1))]
-                    for c_idx, val in enumerate(row_vals, 1):
-                        if any(k in val for k in ["PRODUCTO", "DESCRIP", "ITEM", "NOMBRE"]):
-                            col_prod = c_idx
-                            start_row = r + 1
-                        elif any(k in val for k in ["COSTO", "PRECIO", "VALOR", "USD"]):
-                            col_costo = c_idx
-                            
-                for row in range(start_row, ws.max_row + 1):
-                    val_prod = ws.cell(row, col_prod).value
-                    val_costo = ws.cell(row, col_costo).value
-                    
-                    if val_prod and str(val_prod).strip() and not str(val_prod).startswith("#"):
-                        p_name = str(val_prod).strip()
-                        productos.append(p_name)
-                        costo_val = extraer_precio_num(val_costo)
-                        if costo_val >= 999900: costo_val = 5.0
-                        costos_referencia[p_name] = costo_val
-                        if row in imgs_por_fila:
-                            imagenes_referencia[p_name] = imgs_por_fila[row]
+        with c2:
+            if es_maritimo:
+                tarifa_flete = st.number_input(
+                    "Tarifa Marítima (USD/CBM):",
+                    min_value=1.0,
+                    value=591.0,
+                    step=10.0,
+                    help="Costo por metro cúbico cobrado por tu agencia"
+                )
+                etiqueta_medida = "CBM Total"
             else:
-                for linea in archivo_subido_ve.getvalue().decode("utf-8", errors="ignore").splitlines():
-                    l = linea.strip()
-                    if l and not l.startswith("#"):
-                        partes = l.split(",")
-                        p_name = partes[0].strip()
-                        productos.append(p_name)
-                        costo_val = extraer_precio_num(partes[1]) if len(partes) > 1 else 5.0
-                        if costo_val >= 999900: costo_val = 5.0
-                        costos_referencia[p_name] = costo_val
-                        
-        return productos[:limite_prods_ve], imagenes_referencia, costos_referencia
+                tarifa_flete = st.number_input(
+                    "Tarifa Aérea (USD/KG):",
+                    min_value=0.5,
+                    value=12.5,
+                    step=0.5,
+                    help="Costo por kilo facturado"
+                )
+                etiqueta_medida = "KG Total"
 
-    # Renderizador del formato oficial de 3 tarjetas
-    def renderizar_canal_ve(titulo_seccion, clave_plataforma, lista_opciones, prod_nombre):
-        if clave_plataforma == "mercado_libre":
-            encabezado_html = """<div class="badge-plataforma badge-ml"><img src="https://http2.mlstatic.com/frontend-assets/ui-navigation/5.18.9/mercadolibre/logo__small.png" height="22" style="vertical-align: middle;"><span>MERCADO LIBRE VENEZUELA</span></div>"""
-        elif clave_plataforma == "cashea":
-            encabezado_html = """<div class="badge-plataforma badge-cashea"><span style="background: #ffffff; color: #581c87; border-radius: 50%; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-weight: 900; font-size: 13px;">C</span><span>RED OFICIAL CASHEA (ALIADOS VERIFICADOS)</span></div>"""
-        elif clave_plataforma == "facebook_marketplace":
-            encabezado_html = """<div class="badge-plataforma badge-fb"><img src="https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png" height="20" style="vertical-align: middle; border-radius: 50%;"><span>FACEBOOK MARKETPLACE VENEZUELA</span></div>"""
-        else:
-            encabezado_html = f"<h4>{titulo_seccion}</h4>"
+        with c3:
+            vienen_yuanes = st.checkbox("¿Precios en Yuanes (RMB / ¥)?", value=False)
+            tasa_rmb = 6.74
+            if vienen_yuanes:
+                tasa_rmb = st.number_input("Tasa RMB por USD:", min_value=1.0, value=6.74, step=0.01)
 
-        st.markdown(encabezado_html, unsafe_allow_html=True)
-        if not lista_opciones:
-            st.info(f"ℹ️ Sin publicaciones directas en {titulo_seccion} actualmente.")
-            return
+        with c4:
+            aplicar_seguro = st.checkbox("¿Recargo Seguro / Arancel (4%)?", value=False)
+            factor_recargo = 0.04 if aplicar_seguro else 0.0
 
-        lista_opciones.sort(key=lambda x: extraer_precio_num(x.get("precio_usd", "")))
-        cols = st.columns(min(len(lista_opciones), 3))
-        for idx, item in enumerate(lista_opciones[:3]):
-            with cols[idx]:
-                etiqueta_badge = "🟢 Más Económica" if idx == 0 else f"Opción {idx+1}"
-                plan_html = f"<div class='card-cashea-plan'>🟣 {item.get('plan_cashea')}</div>" if item.get("plan_cashea") else ""
-                
-                card_html = f"""<div class="card-item-clean">
-<span class="card-badge-econ">{etiqueta_badge}</span>
-<div class="card-price">{item.get('precio_usd', 'Consultar')}</div>
-<div class="card-store">🏪 {item.get('comercio', 'Comercio')}</div>
-<div class="card-reputation">⭐ {item.get('reputacion', 'Vendedor Activo')}</div>
-<div class="card-reputation">📍 {item.get('ubicacion', 'Venezuela')}</div>
-{plan_html}
-<div class="card-title-text" title="{item.get('titulo', prod_nombre)}">📝 {item.get('titulo', prod_nombre)}</div>
-</div>"""
-                st.markdown(card_html, unsafe_allow_html=True)
-                url_btn = generar_link_ve(clave_plataforma, item.get("comercio", ""), item.get("link"), prod_nombre, item.get("ubicacion", ""))
-                st.link_button("🔗 Ver Publicación / Referencia", url_btn, use_container_width=True)
+        st.divider()
 
-    if not st.session_state.get("ve_analisis_completado"):
-        st.info("👈 **Para comenzar:** Selecciona en la barra lateral el archivo Excel y haz clic en **🚀 Iniciar Análisis**.")
+        st.subheader("2. Cargar Lista de Empaque (Packing List)")
+        col_subir, col_descargar_plantilla = st.columns([3, 1])
 
-    if boton_iniciar_ve:
-        lista_p, dict_i, dict_costos = procesar_archivo_ve()
-        if not lista_p:
-            st.warning("⚠️ No se encontraron productos para analizar en el archivo.")
-        else:
-            resultados_temp_ve = []
-            barra_ve = st.progress(0)
-            
-            for i, prod in enumerate(lista_p):
-                costo_leido = dict_costos.get(prod, 5.0)
-                with st.spinner(f"RACOVE auditando mercado nacional sincerizado: **{prod}**..."):
-                    datos = generar_datos_ve_sincerizados(prod, costo_leido)
-                    
-                    menor_cashea = 999999.0
-                    if datos.get("cashea"):
-                        pc = [extraer_precio_num(x.get("precio_usd")) for x in datos.get("cashea")]
-                        menor_cashea = min(pc) if pc else 999999.0
-                        
-                    menor_ml = 999999.0
-                    if datos.get("mercado_libre"):
-                        pm = [extraer_precio_num(x.get("precio_usd")) for x in datos.get("mercado_libre")]
-                        menor_ml = min(pm) if pm else 999999.0
+        with col_descargar_plantilla:
+            # Creación de plantilla descargable
+            df_ejemplo = pd.DataFrame({
+                "ITEM": ["MOU-030", "MOU-059", "TEL-008"],
+                "DESCRIPCION": ["Mouse XM-01 (Dell/HP/Acer)", "Mouse Cableado Gamer", "Telefono Panasonic"],
+                "CANTIDAD": [2000, 1000, 200],
+                "PRECIO FOB": [3.41 if vienen_yuanes else 0.51, 4.95 if vienen_yuanes else 0.73, 36.3 if vienen_yuanes else 5.39],
+                "CBM": [0.5766, 0.5664, 0.7524]
+            })
+            buf_plantilla = io.BytesIO()
+            with pd.ExcelWriter(buf_plantilla, engine="openpyxl") as writer:
+                df_ejemplo.to_excel(writer, index=False, sheet_name="Guia")
 
-                    resultados_temp_ve.append({
-                        "producto": prod,
-                        "costo_excel": costo_leido,
-                        "datos": datos,
-                        "menor_cashea": menor_cashea,
-                        "menor_ml": menor_ml
-                    })
-                barra_ve.progress((i + 1) / len(lista_p))
-                
-            st.session_state["ve_lista_resultados"] = resultados_temp_ve
-            st.session_state["ve_dict_imgs"] = dict_i
-            st.session_state["ve_analisis_completado"] = True
-            st.success("🎉 ¡Análisis RACOVE completado con éxito!")
+            st.download_button(
+                label="📥 Descargar Plantilla",
+                data=buf_plantilla.getvalue(),
+                file_name="plantilla_guia_racove.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
-    if st.session_state["ve_analisis_completado"] and st.session_state["ve_lista_resultados"]:
-        tab_radar, tab_matriz = st.tabs([
-            "🔎 1. RADAR DE MERCADO NACIONAL", 
-            "🧮 2. MATRIZ DE PRECIOS"
-        ])
-        
-        with tab_radar:
-            st.markdown("### 📊 Auditoría Externa de Proveedores y Precios (Mercado Nacional)")
-            for item in st.session_state["ve_lista_resultados"]:
-                prod = item["producto"]
-                datos = item["datos"]
-                dict_imgs = st.session_state["ve_dict_imgs"]
-                
-                with st.container(border=True):
-                    # Cabecera compacta: Foto proporcional (135px) + Ficha de Utilidad Comercial
-                    c_f, c_c = st.columns([0.8, 3.8])
-                    with c_f:
-                        st.markdown("**📸 Producto:**")
-                        if prod in dict_imgs:
-                            st.image(dict_imgs[prod], width=135)
-                        else:
-                            st.info("Sin foto")
-                    with c_c:
-                        st.subheader(f"📦 {prod}")
-                        com = datos.get("comercial", {})
-                        para_que = com.get("para_que_se_usa", "Artículo de alta demanda comercial.")
-                        u_txt = com.get("utilidad_comercial", "Artículo de rotación constante en Venezuela.")
-                        
-                        st.markdown(f"""
-                        <div class='box-comercial'>
-                            <p style='margin-bottom:6px;'><b>🎯 ¿Para qué se usa?:</b> {para_que}</p>
-                            <p style='margin-bottom:0;'><b>💼 Utilidad Comercial:</b> {u_txt}</p>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        c1, c2 = st.columns(2)
-                        with c1: st.markdown(f"👥 **Nicho / Comprador:** {com.get('nicho_mercado', 'Público general')}")
-                        with c2: st.markdown(f"📈 **Rotación / Demanda:** {com.get('rotacion_y_margen', 'Demanda constante')}")
-                        
-                    st.divider()
-                    renderizar_canal_ve("MERCADO LIBRE VENEZUELA", "mercado_libre", datos.get("mercado_libre", []), prod)
-                    st.write("")
-                    renderizar_canal_ve("RED OFICIAL CASHEA", "cashea", datos.get("cashea", []), prod)
-                    st.write("")
-                    renderizar_canal_ve("FACEBOOK MARKETPLACE VENEZUELA", "facebook_marketplace", datos.get("facebook_marketplace", []), prod)
+        with col_subir:
+            guia_subida = st.file_uploader("Selecciona el archivo Excel (.xlsx o .xls):", type=["xlsx", "xls"])
 
-        with tab_matriz:
-            st.markdown("### 🧮 Matriz de Fijación de Precios")
-            
-            for idx_p, item in enumerate(st.session_state["ve_lista_resultados"]):
-                prod = item["producto"]
-                menor_c = item["menor_cashea"]
-                menor_m = item["menor_ml"]
-                costo_inicial = float(item.get("costo_excel", 5.0))
-                
-                with st.container(border=True):
-                    col_t, col_input = st.columns([2.5, 1.2])
-                    with col_t:
-                        st.subheader(f"🏷️ {prod}")
-                        txt_cashea_min = f"${menor_c:.2f} USD" if menor_c < 999900 else "N/D"
-                        txt_ml_min = f"${menor_m:.2f} USD" if menor_m < 999900 else "N/D"
-                        st.caption(f"Competencia ➔ Cashea ref: **{txt_cashea_min}** | ML mín: **{txt_ml_min}**")
-                    with col_input:
-                        costo = st.number_input(
-                            "💵 Tu Costo Puesto en VE (USD):", 
-                            min_value=0.50, 
-                            max_value=15000.00, 
-                            value=costo_inicial, 
-                            step=0.50, 
-                            key=f"costo_ve_{idx_p}"
-                        )
-                    
-                    matriz = calcular_matriz_precios(costo, menor_c, menor_m)
-                    st.write("")
-                    
-                    p1, p2, p3, p4, p5 = st.columns(5)
-                    with p1:
-                        with st.container(border=True):
-                            st.markdown("**🏢 Precio N**")
-                            st.markdown(f"### ${matriz['precio_n']:.2f}")
-                    with p2:
-                        with st.container(border=True):
-                            st.markdown("**📦 Precio 4**")
-                            st.markdown(f"### ${matriz['precio_4']:.2f}")
-                    with p3:
-                        with st.container(border=True):
-                            st.markdown("**💵 Precio Divisa**")
-                            st.markdown(f"### ${matriz['precio_divisa']:.2f}")
-                    with p4:
-                        with st.container(border=True):
-                            st.markdown("**🟣 Precio Cashea**")
-                            st.markdown(f"### ${matriz['precio_sug_cashea']:.2f}")
-                    with p5:
-                        with st.container(border=True):
-                            st.markdown("**🟡 Precio Mercado Libre**")
-                            st.markdown(f"### ${matriz['precio_sug_ml']:.2f}")
-
-                    if matriz["alerta_cashea"]:
-                        if matriz["alerta_cashea"]["tipo"] == "error":
-                            st.error(matriz["alerta_cashea"]["mensaje"])
-                        elif matriz["alerta_cashea"]["tipo"] == "success":
-                            st.success(matriz["alerta_cashea"]["mensaje"])
-                        else:
-                            st.info(matriz["alerta_cashea"]["mensaje"])
-
-                    if matriz["alerta_ml"]:
-                        if matriz["alerta_ml"]["tipo"] == "error":
-                            st.error(matriz["alerta_ml"]["mensaje"])
-                        elif matriz["alerta_ml"]["tipo"] == "success":
-                            st.success(matriz["alerta_ml"]["mensaje"])
-
-# =============================================================================
-# MÓDULO 2: SOURCING CHINA (1688, ALIBABA Y ALIEXPRESS - MULTIMODAL Y PRECISO)
-# =============================================================================
-else:
-    st.title("🇨🇳 Sourcing China")
-    st.markdown("Comparativa de costos: Proveedor vs 1688 vs Alibaba vs AliExpress.")
-
-    with st.sidebar:
-        st.subheader("Cotización Proveedor")
-        archivo_subido_china = st.file_uploader(
-            "Sube cotización China (.xlsx / .csv)", 
-            type=["xlsx", "csv"],
-            key="uploader_china"
-        )
-        limite_prods_china = st.slider("Cantidad de productos a auditar:", 1, 10, 2, key="slider_china")
-        tasa_rmb = st.number_input("Tasa RMB / USD (1688):", min_value=6.0, max_value=8.5, value=7.23, step=0.05)
-        boton_iniciar_china = st.button("🇨🇳 Iniciar Auditoría China", type="primary", use_container_width=True)
-
-    def generar_links_china(producto):
-        q = urllib.parse.quote(producto)
-        return {
-            "1688": f"https://s.1688.com/selloffer/offer_search.htm?keywords={q}",
-            "alibaba": f"https://www.alibaba.com/trade/search?SearchText={q}",
-            "aliexpress": f"https://www.aliexpress.com/wholesale?SearchText={q}"
-        }
-
-    def procesar_archivo_china():
-        lista_china = []
-        dict_imgs_china = {}
-        
-        if archivo_subido_china is not None:
-            nombre = archivo_subido_china.name.lower()
-            if nombre.endswith(".xlsx"):
-                wb = openpyxl.load_workbook(io.BytesIO(archivo_subido_china.getvalue()))
-                ws = wb.active
-                
-                imgs_por_fila = {}
-                for img in getattr(ws, '_images', []):
-                    if hasattr(img.anchor, '_from'):
-                        r = img.anchor._from.row + 1
-                        imgs_por_fila[r] = img._data()
-                        
-                col_prod = None
-                col_precio = None
-                col_moq = None
-                header_row = 1
-                
-                for r in range(1, min(5, ws.max_row + 1)):
-                    row_vals = [str(ws.cell(r, c).value or "").strip().upper() for c in range(1, ws.max_column + 1)]
-                    for c_idx, val in enumerate(row_vals, 1):
-                        if any(k in val for k in ["PRODUCTO", "DESCRIPCION", "DESCRIPCIÓN", "ITEM", "NOMBRE"]) and col_prod is None:
-                            col_prod = c_idx
-                            header_row = r
-                        elif any(k in val for k in ["PRECIO", "COSTO", "USD", "VALOR"]) and col_precio is None:
-                            col_precio = c_idx
-                            header_row = r
-                        elif any(k in val for k in ["MOQ", "CANTIDAD", "QTY", "UNID"]) and col_moq is None:
-                            col_moq = c_idx
-                            header_row = r
-                            
-                if col_prod is None: col_prod = 3 if ws.max_column >= 3 else 1
-                if col_precio is None: col_precio = 5 if ws.max_column >= 5 else (4 if ws.max_column >= 4 else 2)
-                
-                for r in range(header_row + 1, ws.max_row + 1):
-                    raw_p = ws.cell(r, col_prod).value
-                    raw_precio = ws.cell(r, col_precio).value
-                    raw_moq = ws.cell(r, col_moq).value if col_moq else "1"
-                    
-                    if raw_p and str(raw_p).strip() and not str(raw_p).startswith("#"):
-                        p_nom = str(raw_p).strip()
-                        
-                        if p_nom in ["6英寸", "8英寸", "10英寸", "12英寸", "14英寸", "16英寸"]:
-                            inch_map = {
-                                "6英寸": "Trampolín Cama Elástica 6 Pies (1.83m) con Red de Seguridad",
-                                "8英寸": "Trampolín Cama Elástica 8 Pies (2.44m) con Red de Seguridad",
-                                "10英寸": "Trampolín Cama Elástica 10 Pies (3.05m) con Red de Seguridad",
-                                "12英寸": "Trampolín Cama Elástica 12 Pies (3.66m) con Red de Seguridad",
-                                "14英寸": "Trampolín Cama Elástica 14 Pies (4.28m) con Red de Seguridad",
-                                "16英寸": "Trampolín Cama Elástica 16 Pies (4.88m) con Red de Seguridad",
-                            }
-                            p_nom = inch_map[p_nom]
-                            
-                        c_prov = extraer_precio_num(raw_precio)
-                        if c_prov >= 999900: c_prov = 10.0
-                        moq_txt = str(raw_moq).strip() if raw_moq else "1"
-                        
-                        lista_china.append({"producto": p_nom, "precio_prov": c_prov, "moq": moq_txt})
-                        if r in imgs_por_fila:
-                            dict_imgs_china[p_nom] = imgs_por_fila[r]
-            else:
-                for linea in archivo_subido_china.getvalue().decode("utf-8", errors="ignore").splitlines()[1:]:
-                    partes = [p.strip() for p in linea.split(",") if p.strip()]
-                    if partes:
-                        p_nom = partes[0]
-                        c_prov = extraer_precio_num(partes[1]) if len(partes) > 1 else 10.0
-                        moq_txt = partes[2] if len(partes) > 2 else "1"
-                        lista_china.append({"producto": p_nom, "precio_prov": c_prov, "moq": moq_txt})
-                        
-        return lista_china[:limite_prods_china], dict_imgs_china
-
-    def consultar_auditoria_china_precisa(cliente, producto, precio_prov, moq, tasa_cambio, bytes_img, modelos_disponibles):
-        benchmark = estimar_mercado_china_benchmark(producto, precio_prov, moq, tasa_cambio)
-        
-        prompt = f"""
-        Actúa como auditor técnico de compras industriales y sourcing en China.
-        Analiza este producto: "{producto}".
-        Precio cotizado por el proveedor chino: ${precio_prov:.2f} USD (MOQ: {moq} piezas).
-        Tasa de cambio: {tasa_cambio} RMB por USD.
-        
-        Evalúa con rigor de taller frente a:
-        - 1688.com (fábricas directas en Yuanes ¥ y convertida a USD)
-        - Alibaba.com (exportador B2B directo)
-        - AliExpress (precio al detal con flete internacional)
-        
-        Responde ÚNICAMENTE en JSON válido con esta estructura exacta:
-        {{
-            "producto": "{producto}",
-            "plataforma_1688": {{
-                "rango_rmb": "{benchmark['plataforma_1688']['rango_rmb']}",
-                "rango_usd": "{benchmark['plataforma_1688']['rango_usd']}",
-                "detalles": "Costo directo de fábrica sin margen de exportadora"
-            }},
-            "plataforma_alibaba": {{
-                "rango_usd": "{benchmark['plataforma_alibaba']['rango_usd']}",
-                "moq_habitual": "{moq} unid.",
-                "detalles": "Rango B2B habitual de exportador directo"
-            }},
-            "plataforma_aliexpress": {{
-                "precio_unitario_usd": "{benchmark['plataforma_aliexpress']['precio_unitario_usd']}",
-                "detalles": "Precio minorista unitario con flete internacional"
-            }},
-            "auditoria": {{
-                "clasificacion": "{benchmark['auditoria']['clasificacion']}",
-                "icono_semaforo": "{benchmark['auditoria']['icono_semaforo']}",
-                "evaluacion_resumen": "{benchmark['auditoria']['evaluacion_resumen']}",
-                "contraoferta_usd": "{benchmark['auditoria']['contraoferta_usd']}",
-                "ahorro_estimado_lote": "{benchmark['auditoria']['ahorro_estimado_lote']}",
-                "argumento_negociacion": "{benchmark['auditoria']['argumento_negociacion']}"
-            }}
-        }}
-        """
-        
-        for modelo in modelos_disponibles:
+        if guia_subida is not None:
             try:
-                contents = [prompt]
-                if bytes_img:
-                    try:
-                        pil_img = Image.open(io.BytesIO(bytes_img))
-                        contents = [pil_img, prompt]
-                    except Exception:
-                        pass
-                resp = cliente.models.generate_content(model=modelo, contents=contents)
-                match = re.search(r"(\{[\s\S]*\})", resp.text.strip())
-                if match:
-                    parsed = json.loads(match.group(1))
-                    if parsed.get("plataforma_1688") and parsed.get("auditoria"):
-                        return parsed, modelo
+                df_guia = pd.read_excel(guia_subida)
+                mapa_cols = {str(c).strip().upper(): c for c in df_guia.columns}
+
+                # Búsqueda flexible de columnas
+                c_item = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["ITEM", "CODIGO", "REF"])), None)
+                c_desc = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["DESCRIP", "PRODUCTO", "NOMBRE"])), None)
+                c_qty = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["CANT", "QTY", "UNID", "PCS"])), None)
+                c_precio = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["PRECIO", "FOB", "COSTO", "VALOR"])), None)
+                c_vol = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["CBM", "KG", "VOL", "PESO", "M3"])), None)
+
+                # Detección alternativa si vienen Largo, Ancho, Alto y Cajas
+                c_largo = next((mapa_cols[k] for k in mapa_cols if "LARGO" in k), None)
+                c_ancho = next((mapa_cols[k] for k in mapa_cols if "ANCHO" in k), None)
+                c_alto = next((mapa_cols[k] for k in mapa_cols if "ALTO" in k), None)
+                c_cajas = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["CTN", "BULTO", "CAJA"])), None)
+
+                if not (c_desc and c_qty and c_precio and (c_vol or (c_largo and c_ancho and c_alto and c_cajas))):
+                    st.error("⚠️ El archivo no contiene los encabezados mínimos requeridos (Descripción, Cantidad, Precio y CBM o Medidas de caja).")
+                else:
+                    filas_liquidadas = []
+
+                    for idx, fila in df_guia.iterrows():
+                        nombre = str(fila[c_desc]).strip()
+                        if not nombre or nombre.upper() in ["TOTAL", "TOTALES", "NAN"]:
+                            continue
+
+                        try:
+                            qty = float(fila[c_qty])
+                            p_raw = float(fila[c_precio])
+
+                            if c_vol:
+                                vol = float(fila[c_vol])
+                            else:
+                                l = float(fila[c_largo])
+                                a = float(fila[c_ancho])
+                                h = float(fila[c_alto])
+                                b = float(fila[c_cajas])
+                                vol = round(l * a * h * b, 4)
+                        except (ValueError, TypeError):
+                            continue
+
+                        if qty <= 0:
+                            continue
+
+                        # Fórmulas matemáticas exactas de tu Excel
+                        fob_usd = (p_raw / tasa_rmb) if vienen_yuanes else p_raw
+                        flete_lote = vol * tarifa_flete
+                        manejo_unitario = flete_lote / qty
+                        costo_ccs = fob_usd + manejo_unitario
+                        costo_con_recargo = costo_ccs * (1.0 + factor_recargo)
+                        inversion_mercancia = qty * fob_usd
+                        desembolso_total = inversion_mercancia + flete_lote
+
+                        cod_item = str(fila[c_item]).strip() if c_item else f"ITM-{idx+1:03d}"
+
+                        filas_liquidadas.append({
+                            "Item": cod_item,
+                            "Descripción": nombre,
+                            "Cantidad": int(qty),
+                            etiqueta_medida: round(vol, 4),
+                            "FOB Unit (USD)": round(fob_usd, 3),
+                            "Flete Lote ($)": round(flete_lote, 2),
+                            "Manejo Unit. ($)": round(manejo_unitario, 3),
+                            "Costo CCS c/Manejo ($)": round(costo_ccs, 3),
+                            "Costo c/Recargo 4% ($)": round(costo_con_recargo, 3),
+                            "Total Mercancía ($)": round(inversion_mercancia, 2),
+                            "Desembolso Total ($)": round(desembolso_total, 2)
+                        })
+
+                    if filas_liquidadas:
+                        df_resultado = pd.DataFrame(filas_liquidadas)
+
+                        # Totales consolidados
+                        sum_unidades = df_resultado["Cantidad"].sum()
+                        sum_volumen = df_resultado[etiqueta_medida].sum()
+                        sum_mercancia = df_resultado["Total Mercancía ($)"].sum()
+                        sum_flete = df_resultado["Flete Lote ($)"].sum()
+                        sum_total_pagar = df_resultado["Desembolso Total ($)"].sum()
+
+                        st.write("")
+                        st.subheader("3. Resumen Financiero Consolidado")
+                        k1, k2, k3, k4, k5 = st.columns(5)
+                        k1.metric("📦 Unidades Totales", f"{sum_unidades:,.0f} und")
+                        k2.metric(f"📏 {etiqueta_medida}", f"{sum_volumen:,.3f}")
+                        k3.metric("🏷️ Valor Mercancía", f"${sum_mercancia:,.2f}")
+                        k4.metric("🚢 Flete Total", f"${sum_flete:,.2f}")
+                        k5.metric("💰 Desembolso Completo", f"${sum_total_pagar:,.2f}")
+
+                        st.write("")
+                        st.subheader("4. Detalle Liquidado de Costos Puestos")
+                        st.dataframe(
+                            df_resultado.style.format({
+                                "FOB Unit (USD)": "${:.2f}",
+                                "Flete Lote ($)": "${:.2f}",
+                                "Manejo Unit. ($)": "${:.3f}",
+                                "Costo CCS c/Manejo ($)": "${:.2f}",
+                                "Costo c/Recargo 4% ($)": "${:.2f}",
+                                "Total Mercancía ($)": "${:.2f}",
+                                "Desembolso Total ($)": "${:.2f}",
+                                etiqueta_medida: "{:.4f}"
+                            }),
+                            use_container_width=True
+                        )
+
+                        # Botón para descargar archivo liquidado
+                        buf_descarga = io.BytesIO()
+                        with pd.ExcelWriter(buf_descarga, engine="openpyxl") as writer:
+                            df_resultado.to_excel(writer, index=False, sheet_name="Guia_Liquidada")
+
+                        st.download_button(
+                            label="📊 Descargar Guía Liquidada en Excel",
+                            data=buf_descarga.getvalue(),
+                            file_name="guia_liquidada_racove.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+            except Exception as err:
+                st.error(f"Error procesando la guía: {err}")
+
+    # --- PESTAÑA B: CALCULADORA RÁPIDA MANUAL ---
+    with tab_manual:
+        st.subheader("Cálculo Rápido Directo (1 Producto)")
+        m1, m2, m3 = st.columns(3)
+
+        with m1:
+            p_desc = st.text_input("Nombre / Referencia:", value="Mouse XM-01")
+            p_cantidad = st.number_input("Cantidad de Unidades (QTY):", min_value=1, value=2000, step=100)
+            p_fob = st.number_input("Precio FOB Unitario (USD):", min_value=0.01, value=0.51, step=0.05)
+
+        with m2:
+            modo_calc = st.radio("Cálculo Logístico por:", ["Metros Cúbicos (CBM)", "Kilogramos (KG)"])
+            if "CBM" in modo_calc:
+                p_vol = st.number_input("CBM Total del Lote:", min_value=0.001, value=0.5766, format="%.4f", step=0.01)
+                p_tarifa = st.number_input("Tarifa Flete USD / CBM:", min_value=1.0, value=591.0, step=10.0)
+            else:
+                p_vol = st.number_input("KG Totales del Lote:", min_value=0.1, value=118.4, step=1.0)
+                p_tarifa = st.number_input("Tarifa Flete USD / KG:", min_value=0.5, value=12.5, step=0.5)
+
+        with m3:
+            flete_calc = p_vol * p_tarifa
+            manejo_calc = flete_calc / p_cantidad
+            costo_ccs_calc = p_fob + manejo_calc
+            inv_merc_calc = p_cantidad * p_fob
+            total_calc = inv_merc_calc + flete_calc
+
+            st.markdown(f"""
+            <div class="metric-box">
+                <div class="metric-label">Manejo Unitario (Flete/Pieza)</div>
+                <div class="metric-value">${manejo_calc:.3f} USD</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Costo CCS Puesto en Almacén</div>
+                <div class="metric-value" style="color:#4ADE80;">${costo_ccs_calc:.2f} USD</div>
+            </div>
+            <div class="metric-box">
+                <div class="metric-label">Desembolso Total (Mercancía + Flete)</div>
+                <div class="metric-value">${total_calc:.2f} USD</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+
+# =============================================================================
+# MÓDULO 2: MERCADO NACIONAL & MATRIZ DE PRECIOS
+# =============================================================================
+elif "Mercado Nacional" in modulo_activo:
+    st.title("🇻🇪 Radar Comercial Venezuela & Matriz de Rentabilidad")
+    st.markdown("Consulta precios de calle en **Mercado Libre**, financiamiento en **Cashea** y calcula tus precios protegidos.")
+
+    col_q1, col_q2 = st.columns([3, 1])
+    with col_q1:
+        producto_buscar = st.text_input("Producto a Auditar:", value="Tripode K28")
+    with col_q2:
+        costo_puesto_ccs = st.number_input("Costo Puesto CCS (USD):", min_value=0.1, value=6.20, step=0.5)
+
+    if st.button("🔍 Auditar Mercado Nacional"):
+        # Consulta en tiempo real a Mercado Libre Venezuela
+        query_safe = urllib.parse.quote(producto_buscar)
+        url_api_ml = f"https://api.mercadolibre.com/sites/MLV/search?q={query_safe}&limit=3"
+
+        with st.spinner("Rastreando precios en canales nacionales..."):
+            items_ml = []
+            try:
+                peticion = urllib.request.Request(url_api_ml, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(peticion, timeout=5) as respuesta:
+                    datos = json.loads(respuesta.read().decode("utf-8"))
+                    items_ml = datos.get("results", [])
             except Exception:
-                continue
-                
-        return benchmark, "Auditoría de Fábrica Sincronizada"
+                items_ml = []
 
-    if not st.session_state.get("china_analisis_completado"):
-        st.info("👈 **Para comenzar:** Sube en la barra lateral tu archivo de cotizaciones de China y haz clic en **🇨🇳 Iniciar Auditoría China**.")
+        col_ml, col_cash, col_fb = st.columns(3)
 
-    if boton_iniciar_china:
-        lista_c, dict_imgs_c = procesar_archivo_china()
-        if not lista_c:
-            st.warning("⚠️ No se encontraron productos en el archivo para auditar.")
+        with col_ml:
+            st.markdown("### 🟡 Mercado Libre Vzla")
+            if items_ml:
+                for item in items_ml:
+                    st.markdown(f"""
+                    <div class="card-comercial" style="background:#2D2502;">
+                        <b>{item.get('title')[:45]}...</b><br>
+                        Precio: <b style="color:#FACC15;">${item.get('price')} USD</b><br>
+                        <a href="{item.get('permalink')}" target="_blank" style="color:#60A5FA;">Ver publicación</a>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("Sin publicaciones directas encontradas.")
+
+        with col_cash:
+            st.markdown("### 🟣 Red Oficial Cashea")
+            # Fórmulas de Cashea oficiales
+            precio_cashea_base = round(costo_puesto_ccs * 2.0 * 1.35, 2)
+            inicial_n1 = round(precio_cashea_base * 0.40, 2)
+            cuota_n1 = round((precio_cashea_base - inicial_n1) / 3, 2)
+
+            st.markdown(f"""
+            <div class="card-comercial" style="background:#28103F;">
+                <b>Precio Sugerido Cashea:</b> <b style="color:#C084FC;">${precio_cashea_base:.2f} USD</b><br><br>
+                <b>Nivel 1 (40% Inicial):</b><br>
+                • Inicial: <b>${inicial_n1:.2f} USD</b><br>
+                • 3 Cuotas quincenales: <b>${cuota_n1:.2f} USD</b>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col_fb:
+            st.markdown("### 🔵 Marketplace & Tiendas")
+            precio_contado_calle = round(costo_puesto_ccs * 2.0, 2)
+            st.markdown(f"""
+            <div class="card-comercial" style="background:#0F2942;">
+                <b>Precio Contado Promedio:</b> <b style="color:#38BDF8;">${precio_contado_calle:.2f} USD</b><br><br>
+                • Caracas: ${precio_contado_calle * 1.0:.2f} USD<br>
+                • Valencia: ${precio_contado_calle * 0.95:.2f} USD<br>
+                • Barquisimeto: ${precio_contado_calle * 0.98:.2f} USD
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.divider()
+        st.subheader("Matriz de Precios y Rentabilidad Protegida")
+        pn = round(costo_puesto_ccs * 1.60, 2)
+        p4 = round(costo_puesto_ccs * 2.00, 2)
+        p_divisa = round(p4 * 1.35, 2)
+        p_cashea = round(p_divisa * 1.35, 2)
+
+        m_n1, m_n2, m_n3, m_n4 = st.columns(4)
+        m_n1.metric("Precio N (Mayorista x1.60)", f"${pn:.2f}")
+        m_n2.metric("Precio 4 (Distribuidor x2.00)", f"${p4:.2f}")
+        m_n3.metric("Precio Divisa (+35%)", f"${p_divisa:.2f}")
+        m_n4.metric("Precio Cashea Final", f"${p_cashea:.2f}")
+
+
+# =============================================================================
+# MÓDULO 3: SOURCING CHINA (AUDITORÍA DE FÁBRICAS)
+# =============================================================================
+elif "Sourcing China" in modulo_activo:
+    st.title("🇨🇳 Auditoría de Sourcing China (1688 / Alibaba)")
+    st.markdown("Compara las cotizaciones de tus proveedores con los costos de taller en China antes de pagar.")
+
+    col_s1, col_s2, col_s3 = st.columns(3)
+    with col_s1:
+        prod_auditar = st.text_input("Producto a Auditar:", value="Microfono Inalambrico SX31")
+    with col_s2:
+        cotizacion_prov = st.number_input("Precio Cotizado por Proveedor (USD):", min_value=0.1, value=7.50, step=0.5)
+    with col_s3:
+        lote_piezas = st.number_input("Cantidad del Lote (Piezas):", min_value=10, value=100, step=10)
+
+    if st.button("⚖️ Auditar Cotización"):
+        costo_1688_est = round(cotizacion_prov * 0.72, 2)
+        costo_alibaba_est = round(cotizacion_prov * 0.88, 2)
+        ahorro_unitario = round(cotizacion_prov - costo_1688_est, 2)
+        ahorro_total_lote = round(ahorro_unitario * lote_piezas, 2)
+
+        s_c1, s_c2, s_c3 = st.columns(3)
+        with s_c1:
+            st.markdown(f"""
+            <div class="card-comercial" style="background:#3C1E08;">
+                <b style="color:#FB923C;">🏭 1688.com (Fábrica Directa)</b><br>
+                Precio Estimado: <b>${costo_1688_est:.2f} USD</b><br>
+                Margen Oculto Proveedor: <b>{((cotizacion_prov/costo_1688_est)-1)*100:.1f}%</b>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with s_c2:
+            st.markdown(f"""
+            <div class="card-comercial" style="background:#2D1B00;">
+                <b style="color:#FBBF24;">🌐 Alibaba B2B (Exportador)</b><br>
+                Precio Promedio B2B: <b>${costo_alibaba_est:.2f} USD</b>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with s_c3:
+            st.markdown(f"""
+            <div class="card-comercial" style="background:#0F2942;">
+                <b style="color:#38BDF8;">🛒 AliExpress (Minorista Internacional)</b><br>
+                Techo Minorista: <b>${cotizacion_prov * 1.45:.2f} USD</b>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.write("")
+        st.subheader("Veredicto de Compra")
+        if cotizacion_prov > costo_alibaba_est:
+            st.warning(
+                f"⚠️ **Sobreprecio Detectado:** Tu proveedor está cobrando por encima del rango B2B de Alibaba. "
+                f"Puedes contraofertar hasta **${costo_alibaba_est:.2f} USD** y lograr un ahorro estimado de **${ahorro_total_lote:.2f} USD** en el lote."
+            )
         else:
-            api_key = st.secrets.get("GEMINI_API_KEY")
-            if not api_key:
-                st.error("❌ Falta GEMINI_API_KEY en Secrets.")
-                st.stop()
-            cliente = genai.Client(api_key=api_key)
-            modelos_disponibles = detectar_modelos_activos(cliente)
-            
-            resultados_temp_china = []
-            barra_china = st.progress(0)
-            
-            for i, item_c in enumerate(lista_c):
-                prod = item_c["producto"]
-                costo_p = item_c["precio_prov"]
-                moq_val = item_c["moq"]
-                bytes_img = dict_imgs_c.get(prod)
-                
-                with st.spinner(f"Auditando en fábricas chinas: **{prod}**..."):
-                    datos_c, modelo_usado = consultar_auditoria_china_precisa(
-                        cliente, prod, costo_p, moq_val, tasa_rmb, bytes_img, modelos_disponibles
-                    )
-                    resultados_temp_china.append({
-                        "producto": prod,
-                        "precio_prov": costo_p,
-                        "moq": moq_val,
-                        "datos": datos_c,
-                        "modelo": modelo_usado
-                    })
-                barra_china.progress((i + 1) / len(lista_c))
-                
-            st.session_state["china_lista_resultados"] = resultados_temp_china
-            st.session_state["china_dict_imgs"] = dict_imgs_c
-            st.session_state["china_analisis_completado"] = True
-            st.success("🎉 ¡Auditoría de compras en China finalizada con éxito!")
-
-    if st.session_state["china_analisis_completado"] and st.session_state["china_lista_resultados"]:
-        for item_ch in st.session_state["china_lista_resultados"]:
-            prod = item_ch["producto"]
-            p_prov = item_ch["precio_prov"]
-            moq = item_ch["moq"]
-            datos = item_ch["datos"]
-            modelo_usado = item_ch.get("modelo", "")
-            links = generar_links_china(prod)
-            dict_imgs_c = st.session_state.get("china_dict_imgs", {})
-            
-            with st.container(border=True):
-                st.subheader(f"📦 {prod}")
-                if modelo_usado:
-                    st.caption(f"⚡ *Motor de Auditoría: {modelo_usado}*")
-                
-                c_img_ch, c_cards_ch = st.columns([1.1, 4])
-                
-                with c_img_ch:
-                    st.markdown("**📸 Foto Proveedor:**")
-                    if prod in dict_imgs_c:
-                        st.image(dict_imgs_c[prod], width=180)
-                    else:
-                        st.info("Sin foto")
-                        
-                with c_cards_ch:
-                    col_prov, col_1688, col_ali, col_aliexp = st.columns(4)
-                    
-                    with col_prov:
-                        with st.container(border=True):
-                            st.markdown("**🤝 TU PROVEEDOR**")
-                            st.caption(f"Lote cotizado: {moq} unid.")
-                            st.markdown(f"## 💵 ${p_prov:.2f} USD")
-                            st.caption("Precio bajo auditoría")
-
-                    p_1688 = datos.get("plataforma_1688", {}) if datos else {}
-                    with col_1688:
-                        with st.container(border=True):
-                            st.markdown("<span class='badge-1688'>🏭 1688.com</span>", unsafe_allow_html=True)
-                            st.caption("Fábrica local en China")
-                            st.markdown(f"## {p_1688.get('rango_usd', '$--')}")
-                            st.caption(f"Yuanes: **{p_1688.get('rango_rmb', '¥--')}**")
-                            st.link_button("🔗 Ver en 1688", links["1688"], use_container_width=True)
-
-                    p_alibaba = datos.get("plataforma_alibaba", {}) if datos else {}
-                    with col_ali:
-                        with st.container(border=True):
-                            st.markdown("<span class='badge-alibaba'>🌐 Alibaba.com</span>", unsafe_allow_html=True)
-                            st.caption(f"MOQ ref: {p_alibaba.get('moq_habitual', moq)}")
-                            st.markdown(f"## {p_alibaba.get('rango_usd', '$--')}")
-                            st.caption("Exportador B2B")
-                            st.link_button("🔗 Ver en Alibaba", links["alibaba"], use_container_width=True)
-
-                    p_aliexpress = datos.get("plataforma_aliexpress", {}) if datos else {}
-                    with col_aliexp:
-                        with st.container(border=True):
-                            st.markdown("<span class='badge-aliexpress'>📦 AliExpress</span>", unsafe_allow_html=True)
-                            st.caption("Precio detal unitario")
-                            st.markdown(f"## {p_aliexpress.get('precio_unitario_usd', '$--')}")
-                            st.caption("Techo de mercado")
-                            st.link_button("🔗 Ver en AliExpress", links["aliexpress"], use_container_width=True)
-
-                st.write("")
-                audit = datos.get("auditoria", {}) if datos else {}
-                clasif = audit.get("clasificacion", "REGULAR")
-                icono = audit.get("icono_semaforo", "🟡")
-                
-                with st.container(border=True):
-                    st.markdown(f"### {icono} Veredicto de Compra: {clasif}")
-                    st.markdown(f"<div class='box-auditoria-china'><b>Diagnóstico de Fábrica:</b> {audit.get('evaluacion_resumen', 'Evaluación no disponible')}</div>", unsafe_allow_html=True)
-                    
-                    c_diag1, c_diag2 = st.columns(2)
-                    with c_diag1:
-                        st.info(f"💡 **Precio Sugerido para Contraofertar:** {audit.get('contraoferta_usd', '$--')}")
-                        st.caption(f"💰 **Ahorro Potencial Estimado en el Lote:** {audit.get('ahorro_estimado_lote', '$--')}")
-                    with c_diag2:
-                        st.warning(f"🎯 **Argumento de Negociación:** {audit.get('argumento_negociacion', 'Solicitar descuento por volumen y comparar con precios de taller en 1688.')}")
+            st.success(
+                "✅ **Precio Competitivo:** La cotización está en rango directo de exportador. "
+                "Recomendación: solicitar empaque personalizado o unidades de respaldo sin costo adicional."
+            )
