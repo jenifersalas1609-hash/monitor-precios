@@ -230,7 +230,7 @@ def calcular_matriz_precios(costo_unitario, menor_precio_cashea=None, menor_prec
 def generar_datos_ve_sincerizados(producto, costo_excel=5.0):
     p_low = str(producto).lower()
     
-    # 1. Cuidado Personal, Peluquería y Belleza (Calibrado a Precios Reales MLV)
+    # 1. Cuidado Personal, Peluquería y Belleza
     if any(k in p_low for k in ["rizador", "plancha", "ondulador", "cabello", "secador", "cepillo", "encrespador"]):
         para_que = "Rizador espiral para moldeado térmico rápido, diseñado para definir bucles y rizos uniformes con guía plástica antiquemaduras."
         utilidad = "Artículo de rotación masiva en Venezuela, altamente comoditizado en plataformas digitales con guerra de precios y envío gratis incluido."
@@ -509,7 +509,11 @@ with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/3135/3135715.png", width=55)
     st.title("🎯 RACOVE")
     
-    opciones_modulos = ["🇻🇪 RACOVE (Mercado Nacional y Rentabilidad)", "🇨🇳 Sourcing China (Auditoría de Fábricas)"]
+    opciones_modulos = [
+        "🇻🇪 RACOVE (Mercado Nacional y Rentabilidad)", 
+        "🇨🇳 Sourcing China (Auditoría de Fábricas)",
+        "📦 Liquidación de Guías (Marítimo / Aéreo)"
+    ]
     modulo_activo = st.radio("Módulo:", opciones_modulos, key="radio_modulo_principal")
     st.divider()
 
@@ -643,7 +647,6 @@ if "RACOVE" in str(modulo_activo):
                         
         return productos[:limite_prods_ve], imagenes_referencia, costos_referencia
 
-    # Renderizador del formato oficial de 3 tarjetas
     def renderizar_canal_ve(titulo_seccion, clave_plataforma, lista_opciones, prod_nombre):
         if clave_plataforma == "mercado_libre":
             encabezado_html = """<div class="badge-plataforma badge-ml"><img src="https://http2.mlstatic.com/frontend-assets/ui-navigation/5.18.9/mercadolibre/logo__small.png" height="22" style="vertical-align: middle;"><span>MERCADO LIBRE VENEZUELA</span></div>"""
@@ -733,7 +736,6 @@ if "RACOVE" in str(modulo_activo):
                 dict_imgs = st.session_state["ve_dict_imgs"]
                 
                 with st.container(border=True):
-                    # Cabecera compacta: Foto proporcional (135px) + Ficha de Utilidad Comercial
                     c_f, c_c = st.columns([0.8, 3.8])
                     with c_f:
                         st.markdown("**📸 Producto:**")
@@ -833,7 +835,7 @@ if "RACOVE" in str(modulo_activo):
 # =============================================================================
 # MÓDULO 2: SOURCING CHINA (1688, ALIBABA Y ALIEXPRESS - MULTIMODAL Y PRECISO)
 # =============================================================================
-else:
+elif "Sourcing China" in str(modulo_activo):
     st.title("🇨🇳 Sourcing China")
     st.markdown("Comparativa de costos: Proveedor vs 1688 vs Alibaba vs AliExpress.")
 
@@ -1110,3 +1112,210 @@ else:
                         st.caption(f"💰 **Ahorro Potencial Estimado en el Lote:** {audit.get('ahorro_estimado_lote', '$--')}")
                     with c_diag2:
                         st.warning(f"🎯 **Argumento de Negociación:** {audit.get('argumento_negociacion', 'Solicitar descuento por volumen y comparar con precios de taller en 1688.')}")
+
+# =============================================================================
+# MÓDULO 3: LIQUIDACIÓN DE GUÍAS Y COSTO PUESTO (CARACAS)
+# =============================================================================
+elif "Liquidación de Guías" in str(modulo_activo):
+    st.title("📦 Liquidación de Guías y Costo Puesto CCS")
+    st.markdown("Automatiza el cálculo del **Manejo Unitario (Flete/pieza)** y el **Costo Puesto en Almacén** a partir de tu Packing List.")
+
+    tab_excel, tab_manual = st.tabs(["📄 Procesar Archivo Excel", "⚡ Calculadora Rápida Manual"])
+
+    # --- PESTAÑA 1: SUBIR ARCHIVO EXCEL ---
+    with tab_excel:
+        st.subheader("1. Parámetros de la Agencia de Envíos")
+        c1, c2, c3, c4 = st.columns(4)
+
+        with c1:
+            tipo_envio = st.selectbox("Modalidad de Flete:", ["🚢 Marítimo (Cobro por CBM / m³)", "✈️ Aéreo (Cobro por KG)"])
+            es_maritimo = "Marítimo" in tipo_envio
+
+        with c2:
+            if es_maritimo:
+                tarifa_flete = st.number_input("Tarifa Marítima (USD/CBM):", min_value=1.0, value=591.0, step=10.0)
+                etiqueta_medida = "CBM Total"
+            else:
+                tarifa_flete = st.number_input("Tarifa Aérea (USD/KG):", min_value=0.5, value=12.5, step=0.5)
+                etiqueta_medida = "KG Total"
+
+        with c3:
+            vienen_yuanes = st.checkbox("¿Precios en Yuanes (RMB / ¥)?", value=False)
+            tasa_rmb_guia = 6.74
+            if vienen_yuanes:
+                tasa_rmb_guia = st.number_input("Tasa RMB por USD:", min_value=1.0, value=6.74, step=0.01)
+
+        with c4:
+            aplicar_seguro = st.checkbox("¿Recargo Seguro / Arancel (4%)?", value=False)
+            factor_recargo = 0.04 if aplicar_seguro else 0.0
+
+        st.divider()
+        st.subheader("2. Cargar Lista de Empaque (Packing List)")
+        col_subir, col_plantilla = st.columns([3, 1])
+
+        with col_plantilla:
+            df_ejemplo = pd.DataFrame({
+                "ITEM": ["MOU-030", "MOU-059", "TEL-008"],
+                "DESCRIPCION": ["Mouse XM-01 (Dell/HP/Acer)", "Mouse Cableado Gamer", "Telefono Panasonic"],
+                "CANTIDAD": [2000, 1000, 200],
+                "PRECIO FOB": [3.41 if vienen_yuanes else 0.51, 4.95 if vienen_yuanes else 0.73, 36.3 if vienen_yuanes else 5.39],
+                "CBM": [0.5766, 0.5664, 0.7524]
+            })
+            buf_plantilla = io.BytesIO()
+            with pd.ExcelWriter(buf_plantilla, engine="openpyxl") as writer:
+                df_ejemplo.to_excel(writer, index=False, sheet_name="Guia")
+
+            st.write("")
+            st.write("")
+            st.download_button(
+                label="📥 Descargar Plantilla",
+                data=buf_plantilla.getvalue(),
+                file_name="plantilla_guia_racove.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+
+        with col_subir:
+            guia_subida = st.file_uploader("Selecciona el archivo Excel (.xlsx o .xls):", type=["xlsx", "xls"], key="guia_uploader")
+
+        if guia_subida is not None:
+            try:
+                df_guia = pd.read_excel(guia_subida)
+                mapa_cols = {str(c).strip().upper(): c for c in df_guia.columns}
+
+                c_item = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["ITEM", "CODIGO", "REF"])), None)
+                c_desc = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["DESCRIP", "PRODUCTO", "NOMBRE"])), None)
+                c_qty = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["CANT", "QTY", "UNID", "PCS"])), None)
+                c_precio = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["PRECIO", "FOB", "COSTO", "VALOR"])), None)
+                c_vol = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["CBM", "KG", "VOL", "PESO", "M3"])), None)
+
+                c_largo = next((mapa_cols[k] for k in mapa_cols if "LARGO" in k), None)
+                c_ancho = next((mapa_cols[k] for k in mapa_cols if "ANCHO" in k), None)
+                c_alto = next((mapa_cols[k] for k in mapa_cols if "ALTO" in k), None)
+                c_cajas = next((mapa_cols[k] for k in mapa_cols if any(x in k for x in ["CTN", "BULTO", "CAJA"])), None)
+
+                if not (c_desc and c_qty and c_precio and (c_vol or (c_largo and c_ancho and c_alto and c_cajas))):
+                    st.error("⚠️ El archivo no contiene los encabezados mínimos requeridos (Descripción, Cantidad, Precio y CBM o Medidas de caja).")
+                else:
+                    filas_liquidadas = []
+                    for idx, fila in df_guia.iterrows():
+                        nombre = str(fila[c_desc]).strip()
+                        if not nombre or nombre.upper() in ["TOTAL", "TOTALES", "NAN"]:
+                            continue
+
+                        try:
+                            qty = float(fila[c_qty])
+                            p_raw = float(fila[c_precio])
+                            if c_vol:
+                                vol = float(fila[c_vol])
+                            else:
+                                l = float(fila[c_largo])
+                                a = float(fila[c_ancho])
+                                h = float(fila[c_alto])
+                                b = float(fila[c_cajas])
+                                vol = round(l * a * h * b, 4)
+                        except (ValueError, TypeError):
+                            continue
+
+                        if qty <= 0:
+                            continue
+
+                        fob_usd = (p_raw / tasa_rmb_guia) if vienen_yuanes else p_raw
+                        flete_lote = vol * tarifa_flete
+                        manejo_unitario = flete_lote / qty
+                        costo_ccs = fob_usd + manejo_unitario
+                        costo_con_recargo = costo_ccs * (1.0 + factor_recargo)
+                        inversion_mercancia = qty * fob_usd
+                        desembolso_total = inversion_mercancia + flete_lote
+
+                        cod_item = str(fila[c_item]).strip() if c_item else f"ITM-{idx+1:03d}"
+
+                        filas_liquidadas.append({
+                            "Item": cod_item,
+                            "Descripción": nombre,
+                            "Cantidad": int(qty),
+                            etiqueta_medida: round(vol, 4),
+                            "FOB Unit (USD)": round(fob_usd, 3),
+                            "Flete Lote ($)": round(flete_lote, 2),
+                            "Manejo Unit. ($)": round(manejo_unitario, 3),
+                            "Costo CCS c/Manejo ($)": round(costo_ccs, 3),
+                            "Costo c/Recargo 4% ($)": round(costo_con_recargo, 3),
+                            "Total Mercancía ($)": round(inversion_mercancia, 2),
+                            "Desembolso Total ($)": round(desembolso_total, 2)
+                        })
+
+                    if filas_liquidadas:
+                        df_resultado = pd.DataFrame(filas_liquidadas)
+
+                        sum_unidades = df_resultado["Cantidad"].sum()
+                        sum_volumen = df_resultado[etiqueta_medida].sum()
+                        sum_mercancia = df_resultado["Total Mercancía ($)"].sum()
+                        sum_flete = df_resultado["Flete Lote ($)"].sum()
+                        sum_total_pagar = df_resultado["Desembolso Total ($)"].sum()
+
+                        st.write("")
+                        st.subheader("3. Resumen Financiero Consolidado")
+                        k1, k2, k3, k4, k5 = st.columns(5)
+                        k1.metric("📦 Unidades Totales", f"{sum_unidades:,.0f} und")
+                        k2.metric(f"📏 {etiqueta_medida}", f"{sum_volumen:,.3f}")
+                        k3.metric("🏷️ Valor Mercancía", f"${sum_mercancia:,.2f}")
+                        k4.metric("🚢 Flete Total", f"${sum_flete:,.2f}")
+                        k5.metric("💰 Desembolso Completo", f"${sum_total_pagar:,.2f}")
+
+                        st.write("")
+                        st.subheader("4. Detalle Liquidado de Costos Puestos")
+                        st.dataframe(
+                            df_resultado.style.format({
+                                "FOB Unit (USD)": "${:.2f}",
+                                "Flete Lote ($)": "${:.2f}",
+                                "Manejo Unit. ($)": "${:.3f}",
+                                "Costo CCS c/Manejo ($)": "${:.2f}",
+                                "Costo c/Recargo 4% ($)": "${:.2f}",
+                                "Total Mercancía ($)": "${:.2f}",
+                                "Desembolso Total ($)": "${:.2f}",
+                                etiqueta_medida: "{:.4f}"
+                            }),
+                            use_container_width=True
+                        )
+
+                        buf_descarga = io.BytesIO()
+                        with pd.ExcelWriter(buf_descarga, engine="openpyxl") as writer:
+                            df_resultado.to_excel(writer, index=False, sheet_name="Guia_Liquidada")
+
+                        st.download_button(
+                            label="📊 Descargar Guía Liquidada en Excel",
+                            data=buf_descarga.getvalue(),
+                            file_name="guia_liquidada_racove.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+            except Exception as err:
+                st.error(f"Error procesando la guía: {err}")
+
+    # --- PESTAÑA 2: CALCULADORA MANUAL ---
+    with tab_manual:
+        st.subheader("Cálculo Rápido Directo (1 Producto)")
+        m1, m2, m3 = st.columns(3)
+
+        with m1:
+            p_desc = st.text_input("Nombre / Referencia:", value="Mouse XM-01", key="m_desc")
+            p_cantidad = st.number_input("Cantidad de Unidades (QTY):", min_value=1, value=2000, step=100, key="m_qty")
+            p_fob = st.number_input("Precio FOB Unitario (USD):", min_value=0.01, value=0.51, step=0.05, key="m_fob")
+
+        with m2:
+            modo_calc = st.radio("Cálculo Logístico por:", ["Metros Cúbicos (CBM)", "Kilogramos (KG)"], key="m_modo")
+            if "CBM" in modo_calc:
+                p_vol = st.number_input("CBM Total del Lote:", min_value=0.001, value=0.5766, format="%.4f", step=0.01, key="m_vol")
+                p_tarifa = st.number_input("Tarifa Flete USD / CBM:", min_value=1.0, value=591.0, step=10.0, key="m_tarifa")
+            else:
+                p_vol = st.number_input("KG Totales del Lote:", min_value=0.1, value=118.4, step=1.0, key="m_vol_kg")
+                p_tarifa = st.number_input("Tarifa Flete USD / KG:", min_value=0.5, value=12.5, step=0.5, key="m_tarifa_kg")
+
+        with m3:
+            flete_calc = p_vol * p_tarifa
+            manejo_calc = flete_calc / p_cantidad
+            costo_ccs_calc = p_fob + manejo_calc
+            inv_merc_calc = p_cantidad * p_fob
+            total_calc = inv_merc_calc + flete_calc
+
+            st.metric("Manejo Unitario (Flete/Pieza)", f"${manejo_calc:.3f} USD")
+            st.metric("Costo CCS Puesto en Almacén", f"${costo_ccs_calc:.2f} USD")
+            st.metric("Desembolso Total (Mercancía + Flete)", f"${total_calc:.2f} USD")
