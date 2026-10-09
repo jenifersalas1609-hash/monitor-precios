@@ -1125,7 +1125,7 @@ elif "Liquidación de Guías" in str(modulo_activo):
     # --- PESTAÑA 1: SUBIR ARCHIVO EXCEL ---
     with tab_excel:
         st.subheader("1. Parámetros de la Agencia de Envíos")
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3 = st.columns(3)
 
         with c1:
             tipo_envio = st.selectbox("Modalidad de Flete:", ["🚢 Marítimo (Cobro por CBM / m³)", "✈️ Aéreo (Cobro por KG)"])
@@ -1145,21 +1145,17 @@ elif "Liquidación de Guías" in str(modulo_activo):
             if vienen_yuanes:
                 tasa_rmb_guia = st.number_input("Tasa RMB por USD:", min_value=1.0, value=6.74, step=0.01)
 
-        with c4:
-            aplicar_seguro = st.checkbox("¿Recargo Seguro / Arancel (4%)?", value=False)
-            factor_recargo = 0.04 if aplicar_seguro else 0.0
-
         st.divider()
         st.subheader("2. Cargar Lista de Empaque (Packing List)")
         col_subir, col_plantilla = st.columns([3, 1])
 
         with col_plantilla:
             df_ejemplo = pd.DataFrame({
-                "ITEM": ["MOU-030", "MOU-059", "TEL-008"],
-                "DESCRIPCION": ["Mouse XM-01 (Dell/HP/Acer)", "Mouse Cableado Gamer", "Telefono Panasonic"],
-                "CANTIDAD": [2000, 1000, 200],
-                "PRECIO FOB": [3.41 if vienen_yuanes else 0.51, 4.95 if vienen_yuanes else 0.73, 36.3 if vienen_yuanes else 5.39],
-                "CBM": [0.5766, 0.5664, 0.7524]
+                "ITEM": ["CONS-015", "MOU-068", "MOU-073"],
+                "DESCRIPCION": ["Consola Retro SUP/400", "Mouse Inalámbrico HP W10", "Mouse M331 Silent Plus"],
+                "CANTIDAD": [2000, 1000, 500],
+                "PRECIO FOB": [0.57, 1.28, 1.41],
+                "CBM": [1.7191, 0.2419, 0.2577]
             })
             buf_plantilla = io.BytesIO()
             with pd.ExcelWriter(buf_plantilla, engine="openpyxl") as writer:
@@ -1197,6 +1193,9 @@ elif "Liquidación de Guías" in str(modulo_activo):
                     st.error("⚠️ El archivo no contiene los encabezados mínimos requeridos (Descripción, Cantidad, Precio y CBM o Medidas de caja).")
                 else:
                     filas_liquidadas = []
+                    tot_mercancia_acum = 0.0
+                    tot_flete_acum = 0.0
+
                     for idx, fila in df_guia.iterrows():
                         nombre = str(fila[c_desc]).strip()
                         if not nombre or nombre.upper() in ["TOTAL", "TOTALES", "NAN"]:
@@ -1223,12 +1222,13 @@ elif "Liquidación de Guías" in str(modulo_activo):
                         flete_lote = vol * tarifa_flete
                         manejo_unitario = flete_lote / qty
                         costo_ccs = fob_usd + manejo_unitario
-                        costo_con_recargo = costo_ccs * (1.0 + factor_recargo)
-                        inversion_mercancia = qty * fob_usd
-                        desembolso_total = inversion_mercancia + flete_lote
+                        
+                        tot_mercancia_acum += qty * fob_usd
+                        tot_flete_acum += flete_lote
 
                         cod_item = str(fila[c_item]).strip() if c_item else f"ITM-{idx+1:03d}"
 
+                        # Tabla limpia: termina exactamente en Costo CCS c/Manejo
                         filas_liquidadas.append({
                             "Item": cod_item,
                             "Descripción": nombre,
@@ -1237,10 +1237,7 @@ elif "Liquidación de Guías" in str(modulo_activo):
                             "FOB Unit (USD)": round(fob_usd, 3),
                             "Flete Lote ($)": round(flete_lote, 2),
                             "Manejo Unit. ($)": round(manejo_unitario, 3),
-                            "Costo CCS c/Manejo ($)": round(costo_ccs, 3),
-                            "Costo c/Recargo 4% ($)": round(costo_con_recargo, 3),
-                            "Total Mercancía ($)": round(inversion_mercancia, 2),
-                            "Desembolso Total ($)": round(desembolso_total, 2)
+                            "Costo CCS c/Manejo ($)": round(costo_ccs, 3)
                         })
 
                     if filas_liquidadas:
@@ -1248,17 +1245,15 @@ elif "Liquidación de Guías" in str(modulo_activo):
 
                         sum_unidades = df_resultado["Cantidad"].sum()
                         sum_volumen = df_resultado[etiqueta_medida].sum()
-                        sum_mercancia = df_resultado["Total Mercancía ($)"].sum()
-                        sum_flete = df_resultado["Flete Lote ($)"].sum()
-                        sum_total_pagar = df_resultado["Desembolso Total ($)"].sum()
+                        sum_total_pagar = tot_mercancia_acum + tot_flete_acum
 
                         st.write("")
                         st.subheader("3. Resumen Financiero Consolidado")
                         k1, k2, k3, k4, k5 = st.columns(5)
                         k1.metric("📦 Unidades Totales", f"{sum_unidades:,.0f} und")
                         k2.metric(f"📏 {etiqueta_medida}", f"{sum_volumen:,.3f}")
-                        k3.metric("🏷️ Valor Mercancía", f"${sum_mercancia:,.2f}")
-                        k4.metric("🚢 Flete Total", f"${sum_flete:,.2f}")
+                        k3.metric("🏷️ Valor Mercancía", f"${tot_mercancia_acum:,.2f}")
+                        k4.metric("🚢 Flete Total", f"${tot_flete_acum:,.2f}")
                         k5.metric("💰 Desembolso Completo", f"${sum_total_pagar:,.2f}")
 
                         st.write("")
@@ -1269,9 +1264,6 @@ elif "Liquidación de Guías" in str(modulo_activo):
                                 "Flete Lote ($)": "${:.2f}",
                                 "Manejo Unit. ($)": "${:.3f}",
                                 "Costo CCS c/Manejo ($)": "${:.2f}",
-                                "Costo c/Recargo 4% ($)": "${:.2f}",
-                                "Total Mercancía ($)": "${:.2f}",
-                                "Desembolso Total ($)": "${:.2f}",
                                 etiqueta_medida: "{:.4f}"
                             }),
                             use_container_width=True
